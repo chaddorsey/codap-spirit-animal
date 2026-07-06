@@ -1,96 +1,103 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Stage } from './stage.js';
+import { Axolotl } from './character.js';
 
-const canvas = document.getElementById('stage');
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+const stage = new Stage(document.getElementById('stage'));
+const axo = await Axolotl.load(stage);
+axo.setPixelHeight(170);
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-camera.position.set(6, 0.6, 0);
-camera.lookAt(0, -0.6, 0);
+// debug access for automation
+window.__stage = stage;
+window.__axo = axo;
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
-key.position.set(4, 3, 2);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0xbfe8ff, 0.8);
-fill.position.set(-3, 1, -2);
-scene.add(fill);
+// ------------------------------------------------------------- test panel
+const $ = (sel) => document.querySelector(sel);
+const status = $('#status');
+const modes = { clickToSwim: true, followCursor: false };
 
-function resize() {
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener('resize', resize);
-resize();
+function note(msg) { status.textContent = msg; }
 
-const mixer = new THREE.AnimationMixer(scene);
-const actions = {};
-let clipMeta = {};
-let current = null;
-
-const [gltf, clips] = await Promise.all([
-  new GLTFLoader().loadAsync('/axolotl.glb'),
-  fetch('/clips.json').then(r => r.json()),
-]);
-scene.add(gltf.scene);
-window.__scene = scene;           // debug access for automation
-window.__camera = camera;
-window.__THREE = THREE;
-console.log('animations:', gltf.animations.map(a => a.name));
-gltf.scene.traverse(o => { if (o.isBone) console.log('bone:', o.name); });
-
-for (const meta of clips) clipMeta[meta.name] = meta;
-for (const clip of gltf.animations) {
-  const a = mixer.clipAction(clip);
-  const meta = clipMeta[clip.name] ?? { loop: false };
-  a.setLoop(meta.loop ? THREE.LoopRepeat : THREE.LoopOnce);
-  a.clampWhenFinished = true;
-  actions[clip.name] = a;
+// clip buttons
+const clipBar = $('#clips');
+for (const name of Object.keys(axo.actions)) {
+  if (name === 'blink') continue;
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = async () => {
+    if (axo.meta[name]?.loop) { axo.setBase(name); note(`base loop: ${name}`); }
+    else if (name === 'point' || name === 'droop') {
+      await axo.play(name, { hold: true });
+      note(`${name} (holding — press "release")`);
+    } else { note(`playing: ${name}`); await axo.play(name); note('idle'); }
+  };
+  clipBar.appendChild(b);
 }
 
-function play(name) {
-  const next = actions[name];
-  if (!next) return;
-  next.reset().fadeIn(0.25).play();
-  if (current && current !== next) current.fadeOut(0.25);
-  current = next;
-  document.querySelectorAll('#panel button').forEach(b =>
-    b.classList.toggle('active', b.textContent === name));
-}
+$('#release').onclick = () => { axo.release(); axo.setBase('idle'); note('released'); };
+$('#clickswim').onchange = (e) => { modes.clickToSwim = e.target.checked; };
+$('#cursor').onchange = (e) => {
+  modes.followCursor = e.target.checked;
+  if (!modes.followCursor) axo.clearGaze();
+};
 
-// one-shots return to idle when finished
-mixer.addEventListener('finished', (e) => {
-  const name = e.action.getClip().name;
-  if (name !== 'blink' && name !== 'idle') play('idle');
+// click anywhere (not on UI) -> swim there
+document.addEventListener('click', async (e) => {
+  if (!modes.clickToSwim) return;
+  if (e.target instanceof Element &&
+      (e.target.closest('#panel') || e.target.closest('#tile'))) return;
+  note(`swimming to ${e.clientX},${e.clientY}`);
+  await axo.moveTo(e.clientX, e.clientY);
+  note('arrived — idle');
 });
 
-// blink layered over whatever else is playing (only touches eye bones)
-function scheduleBlink() {
-  setTimeout(() => {
-    if (actions.blink && current !== actions.sleep) {
-      actions.blink.reset().play();
-    }
-    scheduleBlink();
-  }, 1800 + Math.random() * 3500);
-}
+document.addEventListener('pointermove', (e) => {
+  if (modes.followCursor) axo.lookAt(e.clientX, e.clientY);
+});
 
-const panel = document.getElementById('panel');
-for (const meta of clips) {
-  if (meta.name === 'blink') continue;
-  const b = document.createElement('button');
-  b.textContent = meta.name;
-  b.onclick = () => play(meta.name);
-  panel.appendChild(b);
-}
+// ------------------------------------------------------------- fake tile
+// stand-in for a CODAP component until the Phase 3 bridge provides real ones
+const tile = $('#tile');
+let drag = null;
+tile.addEventListener('pointerdown', (e) => {
+  drag = { dx: e.clientX - tile.offsetLeft, dy: e.clientY - tile.offsetTop };
+  tile.setPointerCapture(e.pointerId);
+});
+tile.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  tile.style.left = `${e.clientX - drag.dx}px`;
+  tile.style.top = `${e.clientY - drag.dy}px`;
+});
+tile.addEventListener('pointerup', () => { drag = null; });
 
-play('idle');
-scheduleBlink();
+const tileCenter = () => {
+  const r = tile.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+};
 
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  mixer.update(clock.getDelta());
-  renderer.render(scene, camera);
+$('#goTile').onclick = async () => {
+  const c = tileCenter();
+  note('swimming to tile…');
+  await axo.moveTo(c.x + 130, c.y);   // sidle up beside it
+  note('at tile');
+};
+$('#pointTile').onclick = async () => {
+  const c = tileCenter();
+  axo.lookAt(c.x, c.y);
+  await axo.gestureAt(c.x, c.y);
+  note('pointing at tile (press "release")');
+};
+$('#lookTile').onclick = () => {
+  const c = tileCenter();
+  axo.lookAt(c.x, c.y);
+  note('gazing at tile');
+};
+
+note('ready — click anywhere to make the axolotl swim there');
+
+const clock = { last: performance.now() };
+stage.renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - clock.last) / 1000);
+  clock.last = now;
+  axo.update(dt);
+  stage.render();
 });

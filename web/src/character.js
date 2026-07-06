@@ -1,0 +1,215 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
+
+/**
+ * The axolotl puppet. Owns the mixer, clip layering, screen-space
+ * locomotion, and the procedural gaze pass. All positions in the public
+ * API are SCREEN PIXELS; the stage does the mapping.
+ *
+ * Channel-layering contract with the clip library (02_build_clips.py):
+ * body clips never key eye bones, so gaze/blink always compose cleanly.
+ */
+export class Axolotl {
+  static async load(stage, { url = '/axolotl.glb', clipsUrl = '/clips.json' } = {}) {
+    const [gltf, clipMeta] = await Promise.all([
+      new GLTFLoader().loadAsync(url),
+      fetch(clipsUrl).then(r => r.json()),
+    ]);
+    return new Axolotl(stage, gltf, clipMeta);
+  }
+
+  constructor(stage, gltf, clipMeta) {
+    this.stage = stage;
+    this.root = new THREE.Group();       // screen position + facing
+    this.model = gltf.scene;
+    this.root.add(this.model);
+    stage.scene.add(this.root);
+
+    this.mixer = new THREE.AnimationMixer(this.model);
+    this.actions = {};
+    this.meta = {};
+    for (const m of clipMeta) this.meta[m.name] = m;
+    for (const clip of gltf.animations) {
+      const a = this.mixer.clipAction(clip);
+      const loop = this.meta[clip.name]?.loop;
+      a.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce);
+      a.clampWhenFinished = true;
+      this.actions[clip.name] = a;
+    }
+
+    this.bones = {};
+    for (const n of ['head', 'eye_L', 'eye_R']) {
+      this.bones[n] = this.model.getObjectByName(n);
+    }
+    // bind-pose bookkeeping for the gaze pass
+    this.model.updateMatrixWorld(true);
+    for (const n of ['eye_L', 'eye_R']) {
+      const b = this.bones[n];
+      const qWorld = b.getWorldQuaternion(new THREE.Quaternion());
+      b.userData.restLocal = b.quaternion.clone();
+      b.userData.fBone = FRONT.clone().applyQuaternion(qWorld.clone().invert());
+    }
+
+    this.base = null;              // current base loop action
+    this.oneShot = null;           // current one-shot action
+    this.oneShotDone = null;       // resolver for play() promise
+    this.gaze = null;              // {x,y} screen target or null
+    this.gazeSmoothed = new THREE.Vector3();
+    this.motion = null;            // {target: Vector3, speed, resolve}
+    this.facing = 0;               // current yaw
+    this.targetFacing = 0;
+    this.clock = 0;
+    this.blinkAt = 2;
+
+    this.mixer.addEventListener('finished', (e) => {
+      if (e.action === this.oneShot && !this.holdingOneShot) this._endOneShot();
+    });
+
+    this.setBase('idle', 0);
+    this.setPosition(window.innerWidth / 2, window.innerHeight / 2);
+  }
+
+  // ------------------------------------------------------------ placement
+  setPosition(px, py) {
+    this.root.position.copy(this.stage.worldFromScreen(px, py));
+  }
+
+  getPosition() {
+    return this.stage.screenFromWorld(this.root.position);
+  }
+
+  /** Display height of the character in pixels (approx; model is ~3.7 units). */
+  setPixelHeight(px) {
+    const s = px / (3.7 * this.stage.pixelsPerUnit);
+    this.root.scale.setScalar(s);
+  }
+
+  // ------------------------------------------------------------ animation
+  setBase(name, fade = 0.35) {
+    const next = this.actions[name];
+    if (!next || this.base === next) return;
+    next.reset().fadeIn(fade).play();
+    if (this.base) this.base.fadeOut(fade);
+    this.base = next;
+  }
+
+  /**
+   * Play a one-shot clip over/instead of the base loop.
+   * hold: keep the final pose until release() is called.
+   * Resolves when the clip finishes (or immediately for holds).
+   */
+  play(name, { fade = 0.25, hold = false } = {}) {
+    const a = this.actions[name];
+    if (!a) return Promise.resolve();
+    if (name === 'blink') { a.reset().play(); return Promise.resolve(); }
+    if (this.oneShot) this._endOneShot(0.1);
+    this.oneShot = a;
+    this.holdingOneShot = hold;
+    a.reset().fadeIn(fade).play();
+    this.base?.fadeOut(fade);
+    if (hold) return Promise.resolve();
+    return new Promise(res => { this.oneShotDone = res; });
+  }
+
+  release(fade = 0.35) {
+    if (this.oneShot) this._endOneShot(fade);
+  }
+
+  _endOneShot(fade = 0.35) {
+    this.oneShot.fadeOut(fade);
+    this.oneShot = null;
+    this.holdingOneShot = false;
+    this.base?.reset().fadeIn(fade).play();
+    this.oneShotDone?.();
+    this.oneShotDone = null;
+  }
+
+  // ------------------------------------------------------------ locomotion
+  /** Swim to a screen point. Resolves on arrival. */
+  moveTo(px, py, { pixelsPerSecond = 260 } = {}) {
+    const target = this.stage.worldFromScreen(px, py);
+    this.motion?.resolve?.();
+    this.setBase('swim');
+    return new Promise(resolve => {
+      this.motion = { target, speed: pixelsPerSecond / this.stage.pixelsPerUnit, resolve };
+    });
+  }
+
+  /** Face a screen point (yaw only), or 0 to face the viewer. */
+  faceToward(px) {
+    const here = this.getPosition();
+    this.targetFacing = Math.abs(px - here.x) < 30 ? 0
+      : (px > here.x ? Math.PI / 2 : -Math.PI / 2);
+  }
+
+  /** Turn toward a screen point and point at it. Holds until release(). */
+  async gestureAt(px, py) {
+    this.faceToward(px);
+    return this.play('point', { hold: true });
+  }
+
+  // ------------------------------------------------------------ gaze
+  lookAt(px, py) { this.gaze = { x: px, y: py }; }
+  clearGaze() { this.gaze = null; }
+
+  _gazePass(dt) {
+    const want = this.gaze
+      ? this.stage.worldFromScreen(this.gaze.x, this.gaze.y).setX(8)
+      : this.root.position.clone().setX(20); // rest: toward viewer
+    this.gazeSmoothed.lerp(want, Math.min(1, dt * 8));
+    const q = new THREE.Quaternion();
+    const dir = new THREE.Vector3();
+    for (const n of ['eye_L', 'eye_R']) {
+      const b = this.bones[n];
+      if (!b) continue;
+      b.parent.getWorldQuaternion(q);
+      const base = q.clone().multiply(b.userData.restLocal);
+      const fw = b.userData.fBone.clone().applyQuaternion(base);
+      b.getWorldPosition(dir).sub(this.gazeSmoothed).negate().normalize();
+      const delta = new THREE.Quaternion().setFromUnitVectors(fw, dir);
+      const clamped = new THREE.Quaternion().rotateTowards(delta, 0.5); // ~29 deg
+      b.quaternion.copy(q.clone().invert().multiply(clamped).multiply(base));
+    }
+  }
+
+  // ------------------------------------------------------------ frame tick
+  update(dt) {
+    this.clock += dt;
+    this.mixer.update(dt);
+
+    // locomotion
+    if (this.motion) {
+      const { target, speed, resolve } = this.motion;
+      const delta = target.clone().sub(this.root.position);
+      const dist = delta.length();
+      const step = speed * dt;
+      const screenTarget = this.stage.screenFromWorld(target);
+      this.faceToward(screenTarget.x);
+      if (dist <= step) {
+        this.root.position.copy(target);
+        this.motion = null;
+        this.targetFacing = 0;
+        this.setBase('idle');
+        resolve();
+      } else {
+        delta.normalize().multiplyScalar(step);
+        this.root.position.add(delta);
+        this.root.position.y += Math.sin(this.clock * 5) * 0.012; // swim bob
+      }
+    }
+
+    // facing (eased yaw)
+    this.facing += (this.targetFacing - this.facing) * Math.min(1, dt * 6);
+    this.root.rotation.y = this.facing;
+
+    // blink scheduling (never during sleep)
+    if (this.clock > this.blinkAt) {
+      if (this.base !== this.actions.sleep) this.play('blink');
+      this.blinkAt = this.clock + 1.8 + Math.random() * 3.5;
+    }
+
+    this._gazePass(dt);
+  }
+}
