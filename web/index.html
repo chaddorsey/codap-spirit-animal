@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Axolotl Clip Harness</title>
+  <style>
+    body { margin: 0; font-family: system-ui;
+      /* dot grid proves canvas transparency */
+      background: #f4f6f8 radial-gradient(#c9ced4 1.5px, transparent 1.5px) 0 0 / 24px 24px; }
+    #stage { position: fixed; inset: 0; pointer-events: none; }
+    #panel { position: fixed; top: 10px; left: 10px; display: flex; flex-wrap: wrap;
+      gap: 6px; max-width: 340px; z-index: 10; }
+    #panel button { padding: 6px 10px; border: 1px solid #888; border-radius: 6px;
+      background: #fff; cursor: pointer; }
+    #panel button.active { background: #0b7285; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="panel"></div>
+  <canvas id="stage"></canvas>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
