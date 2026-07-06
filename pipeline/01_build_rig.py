@@ -138,6 +138,21 @@ for side, group in eye_groups.items():
     biggest = max(group, key=lambda g: len(g[0]))
     eye_centers[side] = biggest[1]
 
+# level the eyes: the source mesh has the eye assemblies at different
+# heights/inset (reads as charm through the file's angled camera, reads as
+# lopsided from the straight-on overlay camera). Slide each side's three
+# islands so both eye centers share the same height and |y| spacing.
+z_target = (eye_centers["L"].z + eye_centers["R"].z) / 2
+y_target = (abs(eye_centers["L"].y) + abs(eye_centers["R"].y)) / 2
+for side, sign in (("L", 1), ("R", -1)):
+    c = eye_centers[side]
+    delta = Vector((0, sign * y_target - c.y, z_target - c.z))
+    for comp, _ in eye_groups[side]:
+        for i in comp:
+            me.vertices[i].co += delta
+    eye_centers[side] = c + delta
+    print(f"eye_{side} leveled by ({delta.y:+.3f}, {delta.z:+.3f})")
+
 # gill fronds per side, sorted top-to-bottom
 gill_groups = {"L": [], "R": []}
 for comp, c in gills:
