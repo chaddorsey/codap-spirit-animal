@@ -24,6 +24,10 @@ export class Axolotl {
     this.stage = stage;
     this.root = new THREE.Group();       // screen position + facing
     this.model = gltf.scene;
+    // model origin is at mouth level; lift it so root sits at the visual
+    // center and moveTo/setPosition center the character on their target
+    const bbox = new THREE.Box3().setFromObject(this.model);
+    this.model.position.y = -(bbox.min.y + bbox.max.y) / 2;
     this.root.add(this.model);
     stage.scene.add(this.root);
 
