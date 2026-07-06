@@ -33,6 +33,11 @@ for (const name of Object.keys(axo.actions)) {
 }
 
 $('#release').onclick = () => { axo.release(); axo.setBase('idle'); note('released'); };
+document.querySelectorAll('[data-emote]').forEach(b => {
+  b.onclick = () => { axo.emote(b.dataset.emote); note(`emote: ${b.dataset.emote}`); };
+});
+$('#emoteSticky').onclick = () => { axo.emote('?', { duration: 0 }); note('sticky ? (press hide)'); };
+$('#emoteHide').onclick = () => { axo.clearEmote(); note('emote hidden'); };
 $('#clickswim').onchange = (e) => { modes.clickToSwim = e.target.checked; };
 $('#cursor').onchange = (e) => {
   modes.followCursor = e.target.checked;

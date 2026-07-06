@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EmoteBubble } from './emotes.js';
 
 const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
 
@@ -66,6 +67,8 @@ export class Axolotl {
     this.targetFacing = 0;
     this.clock = 0;
     this.blinkAt = 2;
+
+    this.emotes = new EmoteBubble(this.root);
 
     this.mixer.addEventListener('finished', (e) => {
       if (e.action === this.oneShot && !this.holdingOneShot) this._endOneShot();
@@ -154,26 +157,41 @@ export class Axolotl {
     return this.play('point', { hold: true });
   }
 
+  // ------------------------------------------------------------ emotes
+  /** Show '?', '!', or '?!' bobbing above the head. duration 0 = sticky. */
+  emote(symbols, opts) { return this.emotes.show(symbols, opts); }
+  clearEmote() { this.emotes.hide(); }
+
   // ------------------------------------------------------------ gaze
   lookAt(px, py) { this.gaze = { x: px, y: py }; }
   clearGaze() { this.gaze = null; }
 
   _gazePass(dt) {
-    const want = this.gaze
-      ? this.stage.worldFromScreen(this.gaze.x, this.gaze.y).setX(8)
-      : this.root.position.clone().setX(20); // rest: toward viewer
-    this.gazeSmoothed.lerp(want, Math.min(1, dt * 8));
+    const k = Math.min(1, dt * 8);
+    if (!this.gaze) {
+      // rest: exactly the authored bind orientation — never re-aim,
+      // so the eyes sit precisely as modeled
+      for (const n of ['eye_L', 'eye_R']) {
+        const b = this.bones[n];
+        b?.quaternion.slerp(b.userData.restLocal, k);
+      }
+      return;
+    }
+    // one shared, parallel rotation for both eyes (from the head center,
+    // not per-eye) so the pupils always stay aligned with each other
+    const want = this.stage.worldFromScreen(this.gaze.x, this.gaze.y).setX(10);
+    this.gazeSmoothed.lerp(want, k);
+    const headPos = this.bones.head.getWorldPosition(new THREE.Vector3());
+    const dir = this.gazeSmoothed.clone().sub(headPos).normalize();
     const q = new THREE.Quaternion();
-    const dir = new THREE.Vector3();
     for (const n of ['eye_L', 'eye_R']) {
       const b = this.bones[n];
       if (!b) continue;
       b.parent.getWorldQuaternion(q);
       const base = q.clone().multiply(b.userData.restLocal);
       const fw = b.userData.fBone.clone().applyQuaternion(base);
-      b.getWorldPosition(dir).sub(this.gazeSmoothed).negate().normalize();
       const delta = new THREE.Quaternion().setFromUnitVectors(fw, dir);
-      const clamped = new THREE.Quaternion().rotateTowards(delta, 0.5); // ~29 deg
+      const clamped = new THREE.Quaternion().rotateTowards(delta, 0.45);
       b.quaternion.copy(q.clone().invert().multiply(clamped).multiply(base));
     }
   }
@@ -214,6 +232,7 @@ export class Axolotl {
       this.blinkAt = this.clock + 1.8 + Math.random() * 3.5;
     }
 
+    this.emotes.update(dt, this.facing);
     this._gazePass(dt);
   }
 }
