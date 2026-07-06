@@ -7,6 +7,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "iframe-phone": "^1.4.0",
     "three": "^0.185.1",
     "vite": "^8.1.3"
   }

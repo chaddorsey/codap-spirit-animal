@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Spirit Animal ⋈ CODAP</title>
+  <style>
+    body { margin: 0; font-family: system-ui; overflow: hidden; }
+    #codap { position: fixed; inset: 0; width: 100vw; height: 100vh; border: none; }
+    #stage { position: fixed; inset: 0; width: 100vw; height: 100vh;
+      pointer-events: none; z-index: 50; }
+    #panel { position: fixed; top: 8px; right: 8px; width: 320px; z-index: 100;
+      background: #fffffff2; border: 1px solid #d5dae0; border-radius: 10px;
+      box-shadow: 0 2px 10px #0003; font-size: 12px; }
+    #panel header { padding: 8px 12px; font-weight: 600; cursor: pointer; user-select: none; }
+    #panel .body { padding: 0 12px 10px; }
+    #panel.collapsed .body { display: none; }
+    #panel h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+      color: #667; margin: 10px 0 4px; }
+    #panel .row { display: flex; flex-wrap: wrap; gap: 4px; }
+    #panel button { padding: 4px 8px; border: 1px solid #99a; border-radius: 5px;
+      background: #fff; cursor: pointer; font-size: 11px; }
+    #panel button:hover { background: #eef3f8; }
+    #conn { font-weight: 500; color: #b45309; }
+    #conn.ok { color: #0b7285; }
+    #log { height: 180px; overflow-y: auto; background: #f6f8fa; border: 1px solid #e2e6ea;
+      border-radius: 6px; padding: 6px; font: 10px/1.5 ui-monospace, monospace;
+      white-space: pre-wrap; word-break: break-all; }
+    #components .row { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <iframe id="codap" src="https://codap3.concord.org/?embeddedServer=yes"></iframe>
+  <canvas id="stage"></canvas>
+
+  <div id="panel">
+    <header id="panelToggle">🌸 Spirit Animal bridge — <span id="conn">connecting…</span></header>
+    <div class="body">
+      <h2>Components (click to visit)</h2>
+      <div class="row" id="components"><i>none yet</i></div>
+      <div class="row" style="margin-top:4px">
+        <button id="refresh">refresh list</button>
+        <button id="behaviors">behaviors: <b>on</b></button>
+      </div>
+      <h2>Calibration (tile-anchor offset)</h2>
+      <div class="row">
+        <button data-cal="0,-8">▲</button><button data-cal="0,8">▼</button>
+        <button data-cal="-8,0">◀</button><button data-cal="8,0">▶</button>
+        <button data-scale="-0.01">s−</button><button data-scale="0.01">s+</button>
+        <span id="calv" style="align-self:center"></span>
+      </div>
+      <h2>Event log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/codap-main.js"></script>
+</body>
+</html>
