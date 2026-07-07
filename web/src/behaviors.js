@@ -28,6 +28,12 @@ const IDLE_SLEEP_SEC = 90;
 const IDLE_COOLDOWN_SEC = 30;
 const BESIDE_TILE_PX = 55;            // hover offset next to a tile edge
 
+const GLANCE_COOLDOWN_SEC = 20;
+const DRAG_FOLLOW_COOLDOWN_SEC = 10;
+const DRAG_FOLLOW_MAX_SEC = 45;       // safety cap on following one drag
+const DRAG_STALE_SEC = 3;             // no drag events this long -> assume over
+const DRAG_POLL_SEC = 0.08;
+
 const isGraph = (c) => (c?.type ?? '').toLowerCase().includes('graph');
 
 /** Oldest session-created graph with geometry and no attribute assignments. */
@@ -129,6 +135,55 @@ export function makeBehaviors() {
           await actor.tapAt(x + w / 2, y + h / 2 + 40);
           await ctx.sleep(1.2);
         },
+      },
+    },
+
+    // -------------------------------------------------- follow-attribute-drag
+    // Student drags an attribute -> ? emote, gaze tracks the drag; drop ->
+    // ! + celebrate; dragend without drop -> just clear. ignoreActivity:
+    // the drag itself is continuous student action — the behavior accompanies
+    // it and self-terminates instead of being cancelled by it.
+    {
+      id: 'follow-attribute-drag',
+      priority: 70,
+      cooldownSec: DRAG_FOLLOW_COOLDOWN_SEC,
+      ignoreActivity: true,
+      trigger: (state, event) => event.type === 'drag' && event.detail?.phase === 'dragstart',
+      async run(actor, state, ctx) {
+        actor.emote('?');
+        const t0 = now();
+        for (;;) {
+          const d = state.drag;
+          if (!d || now() - t0 > DRAG_FOLLOW_MAX_SEC) break;
+          if (d.phase === 'drop') {
+            actor.clearGaze();
+            actor.emote('!');
+            await actor.play('celebrate');
+            return;
+          }
+          if (d.phase === 'dragend') break;
+          if (now() - d.at > DRAG_STALE_SEC) break;   // stream died mid-drag
+          if (d.phase === 'drag' && d.position) {
+            const r = ctx.engine.bridge?.iframe?.getBoundingClientRect();
+            if (r) actor.lookAt(r.left + d.position.x, r.top + d.position.y);
+          }
+          await ctx.sleep(DRAG_POLL_SEC);
+        }
+        actor.clearGaze();
+        actor.clearEmote();
+      },
+    },
+
+    // -------------------------------------------------- glance-at-selection
+    // Student selects cases -> curious glance + ?.
+    {
+      id: 'glance-at-selection',
+      priority: 30,
+      cooldownSec: GLANCE_COOLDOWN_SEC,
+      trigger: (state, event) => event.type === 'selection' && (event.detail?.count ?? 0) >= 1,
+      async run(actor) {
+        actor.emote('?');
+        await actor.play('curious');
       },
     },
 

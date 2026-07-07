@@ -33,6 +33,10 @@ Never touch: `behavior-engine.js` (if you think you need to, stop and ask),
     async run(actor, state, ctx) { /* the overt intervention */ },
   },
   onCancel(actor, state) {},         // optional extra cleanup after actor.stop()
+  ignoreActivity: true,              // optional, RARE: behavior accompanies
+                                     // continuous student action (drag-follow)
+                                     // and self-terminates; normal behaviors
+                                     // omit this and get cancel-on-action
 }
 ```
 

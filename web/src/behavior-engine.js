@@ -131,7 +131,9 @@ export class BehaviorEngine {
   _studentActed() {
     const s = this.state;
     s.lastActionAt = now();
-    if (s.active && now() > s.active.graceUntil) {
+    // ignoreActivity behaviors accompany continuous student action (e.g.
+    // following a drag) — they self-terminate instead of being cancelled
+    if (s.active && !s.active.ignoreActivity && now() > s.active.graceUntil) {
       this.cancelActive('student action');
     }
   }
@@ -188,6 +190,7 @@ export class BehaviorEngine {
     const active = {
       id: b.id, escalated, startedAt, token,
       graceUntil: startedAt + (triggeredByAction ? ACTION_GRACE_SEC : 0),
+      ignoreActivity: !!b.ignoreActivity,
     };
     this.state.active = active;
     this.log(`▶ ${b.id}${escalated ? ' ESCALATED' : ''}${forced ? ' (forced)' : ''}`);

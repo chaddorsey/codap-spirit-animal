@@ -19,6 +19,20 @@ character returns to idle · the overlay never intercepts input.
 | `greet-new-component` | `component:create` | always (geometry optional) | `!` emote → `hop` → wait ≤6s for bounds → swim beside tile → gaze at center → `curious` → clear gaze. No bounds: emote + hop only | 8 s | none | 60 | hop, curious, swim |
 | `nudge-empty-graph` | clock tick | a session-created graph with bounds has 0 attribute assignments for >120 s **and** student acted <60 s ago (present, busy elsewhere) | swim beside graph → gaze → `?` emote → 2.5 s → clear gaze | 90 s | after **2** ignored firings: swim **onto** the tile → `tap_L/R` on it → `?!`. Counter resets when any `component:attributeChange` arrives (`satisfied`) | 40 | swim, tap_L, tap_R |
 | `idle-companion` | clock tick | no student action for 90 s | base → `sleep`; stays until any student action cancels; wake adds `!` (`onCancel`) | 30 s | none | 10 | sleep |
+| `follow-attribute-drag` ᵃ | `drag` (`dragstart`) | always | `?` emote; gaze tracks drag position; on drop: `!` + `celebrate`; on dragend/stall: clear | 10 s | none | 70 | celebrate |
+| `glance-at-selection` ᵃ | `selection` | count ≥ 1 | `?` emote → `curious` | 20 s | none | 30 | curious |
+
+ᵃ Added post-Phase-4 (2026-07-07), restoring the retired spike reactions.
+`follow-attribute-drag` sets `ignoreActivity: true` — it accompanies continuous
+student action and self-terminates rather than being cancelled by the drag it
+is following. `glance-at-selection` live-verified (table-row click →
+`selectCases`). **`follow-attribute-drag` is simulation-verified but blocked
+live**: v3 emits `dragDrop` notifications only for attribute drags over
+*plugin tiles* — internal table→graph drags produce no drag-phase
+notifications at all (confirmed 2026-07-07 by watching the raw stream during a
+real header→axis drag; only the final `attributeChange` arrives, which
+`celebrate-first-plot` already covers). It fires correctly the moment such
+notifications exist (or if the companion ever runs as a plugin tile).
 
 Notes:
 - Components present before the wrapper connected are marked `preexisting` and
@@ -31,8 +45,6 @@ Notes:
 
 | id | Trigger | Condition | Sequence | Cooldown | Escalation | Priority | Clips needed |
 |---|---|---|---|---|---|---|---|
-| `glance-at-selection` | `selection` | selection count ≥ 1 | `?` emote → `curious` (re-implements the retired spike reaction) | 20 s | none | 30 | curious ✓ |
-| `follow-attribute-drag` | `drag` phases | dragstart→drop of an attribute | gaze follows drag position; on drop over a tile: `!` + `celebrate`; on dragend: clear gaze (retired spike reaction; needs a "sticky" run that spans phases) | 10 s | none | 70 | celebrate ✓ |
 | `suggest-graph-for-data` | clock tick | a dataContext has cases but no graph exists for >90 s; student active | swim toward the toolbar area → `point_L/R` at the Graph button coords → `?` | 180 s | after 2: tap at the Graph button + `?!` | 35 | point ✓, tap ✓ |
 | `celebrate-first-selection` | `selection` | first nonempty selection of the session | `nod_L/R` toward the graph → `!` | once/session | none | 55 | nod_L/R ✓ |
 | `peer-at-big-selection` | `selection` | count ≥ 10 cases | swim beside the graph → `curious` → `?` | 60 s | none | 25 | curious ✓ |
