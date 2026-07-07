@@ -374,9 +374,9 @@ def _tinkerbell(t, P):
         lean = math.atan2(-tx, ty)            # lean into the travel direction,
         roll = lean * 0.45 * (4 * e * u) + _TK_ANG * e   # no tilt at launch/landing
     elif t < 0.30:                            # prep: settle onto the padded shelf
-        k = (t - 0.24) / (0.30 - 0.24)        # compress, small rebound, rest
+        k = (t - 0.24) / (0.30 - 0.24)        # one slight settle, no bounce
         x, y = _TK_P2
-        y += -0.17 * sin(2 * pi * k) * (1 - 0.55 * k)
+        y += -0.12 * sin(pi * k)
         roll = _TK_ANG
     elif t < T1:                              # prep: spring wind-up — compress
         k = (t - 0.30) / (T1 - 0.30)        # back along the launch tangent
@@ -388,7 +388,7 @@ def _tinkerbell(t, P):
         kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees
         # springy release: fast attack, gradual slowdown over the last
         # quarter-turn, small residual speed into the settle arc
-        k = (1 - (1 - kr) ** 2.6) * 0.5 + 0.5 * kr   # springy attack, mild end taper
+        k = kr + 0.9 * kr * (1 - kr) ** 2            # springy attack, FULL speed at exit
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
