@@ -599,6 +599,14 @@ for name, seconds, fn, loop in CLIPS:
     build_clip(name, seconds, fn)
 zero_pose()
 
+# the source file ships with a short playback range (1-80) and the glTF
+# exporter limits baking to it by default — clips longer than the range
+# get frozen at the last frame. Extend the range to cover the longest clip.
+longest = max(int(s * FPS) + 1 for _, s, _, _ in CLIPS)
+bpy.context.scene.frame_start = 1
+bpy.context.scene.frame_end = longest
+print(f"scene frame range set to 1-{longest}")
+
 # manifest for the web runtime
 import json
 manifest = [{"name": n, "seconds": s, "loop": l} for n, s, fn, l in CLIPS]
