@@ -10,6 +10,46 @@ const COLORS = {
   '!': { color: 0xff7a59, emissive: 0x8f2e14 },   // urgent coral
 };
 
+const DOT_GAP_EXTRA = 0.16;  // extra separation pushed between stroke and dot
+
+/**
+ * helvetiker_bold renders '?'/'!' with the dot nearly touching the downstroke
+ * at our size. The stroke and the dot are disjoint shells in the extruded
+ * geometry, so: partition triangles into connected components (union-find over
+ * shared vertex positions), then push the lowest component — the dot — down.
+ */
+function separateDot(geo, extra = DOT_GAP_EXTRA) {
+  const pos = geo.attributes.position;
+  const n = pos.count;
+  if (!n || geo.index) return;                    // TextGeometry is non-indexed
+  const parent = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (a) => { while (parent[a] !== a) a = parent[a] = parent[parent[a]]; return a; };
+  const union = (a, b) => { parent[find(a)] = find(b); };
+  // merge coincident vertices (rounded position hash), then triangle corners
+  const byPos = new Map();
+  for (let i = 0; i < n; i++) {
+    const key = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`;
+    const seen = byPos.get(key);
+    if (seen === undefined) byPos.set(key, i); else union(i, seen);
+  }
+  for (let i = 0; i + 2 < n; i += 3) { union(i, i + 1); union(i + 1, i + 2); }
+  // lowest component by min-y is the dot; require ≥2 components (plain glyphs pass through)
+  const minY = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    minY.set(r, Math.min(minY.get(r) ?? Infinity, pos.getY(i)));
+  }
+  if (minY.size < 2) return;
+  const dotRoot = [...minY.entries()].sort((a, b) => a[1] - b[1])[0][0];
+  for (let i = 0; i < n; i++) {
+    if (find(i) === dotRoot) pos.setY(i, pos.getY(i) - extra);
+  }
+  pos.needsUpdate = true;
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+}
+
 /**
  * Floating 3D punctuation above the character's head: '?', '!', or '?!'.
  * Lives inside the character's root group so it follows position/scale;
@@ -36,6 +76,7 @@ export class EmoteBubble {
         font, size: 1.0, depth: 0.24, curveSegments: 10,
         bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.045, bevelSegments: 3,
       });
+      separateDot(geo);
       geo.center();
       const mat = new THREE.MeshStandardMaterial({
         color: COLORS[ch].color, emissive: COLORS[ch].emissive,
