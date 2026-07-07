@@ -178,8 +178,9 @@ def _hop(t, P):
 def _wave(t, P):
     lift = min(1.0, t * 4, (1 - t) * 4)              # raise, hold, lower
     sway = 0.35 * sin(6 * pi * t)
-    P.aim("arm_R", (0.25, -0.65 - sway, 0.72), blend=lift)   # up beside the head
-    P.aim("hand_R", (0.3, -0.2 - sway, 0.95), blend=lift)    # hand flaps along
+    P.aim("arm_R", (0.28, -0.82 - sway, 0.62), blend=lift)   # up beside the head,
+                                                             # wider to clear the cheek
+    P.aim("hand_R", (0.32, -0.38 - sway, 0.88), blend=lift)  # hand flaps along
     P.rot("head", y=D(-8 * lift))
     P.rot("chest", z=D(-4 * lift))
     gill_wave(P, t, D(5), 2)
@@ -192,8 +193,10 @@ def _point_for(side):
     def fn(t, P):
         k = min(1.0, t * 3)
         e = 1 - (1 - k) ** 3                         # ease-out
-        P.aim(f"arm_{side}", (0.95, s * 0.30, 0.12), blend=e)   # straight ahead
-        P.aim(f"hand_{side}", (1.0, s * 0.25, 0.05), blend=e)   # finger on the line
+        # straighter line arm->finger, slightly raised so the arm silhouettes
+        # clear of the body when the runtime turns 3/4 toward the target
+        P.aim(f"arm_{side}", (0.97, s * 0.20, 0.18), blend=e)
+        P.aim(f"hand_{side}", (1.0, s * 0.15, 0.10), blend=e)
         P.rot("head", x=D(6 * e))
         P.rot("chest", x=D(6 * e))
         gill_wave(P, t, D(3), 1)
