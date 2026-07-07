@@ -36,6 +36,21 @@ export class Axolotl {
     this.nextZzzAt = 0;
     stage.scene.add(this.root);
 
+    // enforce hemisphere continuity on quaternion tracks: the exporter may
+    // canonicalize key signs (q and -q are the same rotation), and linear
+    // interpolation across such a flip takes the long way around — a
+    // visible ~180-degree pop mid-clip on continuous-roll animations
+    for (const clip of gltf.animations) {
+      for (const tr of clip.tracks) {
+        if (!tr.name.endsWith('.quaternion')) continue;
+        const v = tr.values;
+        for (let i = 4; i < v.length; i += 4) {
+          const dot = v[i] * v[i-4] + v[i+1] * v[i-3] + v[i+2] * v[i-2] + v[i+3] * v[i-1];
+          if (dot < 0) { v[i] *= -1; v[i+1] *= -1; v[i+2] *= -1; v[i+3] *= -1; }
+        }
+      }
+    }
+
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
     this.meta = {};

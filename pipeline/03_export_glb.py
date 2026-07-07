@@ -32,5 +32,8 @@ bpy.ops.export_scene.gltf(
     export_skins=True,
     export_yup=True,
     export_apply=False,
+    # keep dense keyframes: the optimizer thins quaternion channels and can
+    # cause visible pops on clips with continuous 360-degree rolls
+    export_optimize_animation_size=False,
 )
 print("EXPORTED", out, os.path.getsize(out), "bytes")
