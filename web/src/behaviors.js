@@ -29,6 +29,19 @@ const IDLE_COOLDOWN_SEC = 30;
 const BESIDE_TILE_PX = 55;            // hover offset next to a tile edge
 
 const GLANCE_COOLDOWN_SEC = 20;
+const SUGGEST_GRAPH_AFTER_SEC = 90;   // data with no graph this long -> suggest
+const SUGGEST_GRAPH_COOLDOWN_SEC = 180;
+const BIG_SELECTION_COUNT = 10;
+const BIG_SELECTION_COOLDOWN_SEC = 60;
+const IDLE_TABLE_AFTER_SEC = 180;     // table with no case adds this long -> nudge
+const IDLE_TABLE_COOLDOWN_SEC = 120;
+const DATA_MILESTONE_CASES = 25;
+const DATA_MILESTONE_COOLDOWN_SEC = 20;
+const THRASH_EVENTS = 4;              // component churn threshold...
+const THRASH_WINDOW_SEC = 30;         // ...within this window
+const THRASH_COOLDOWN_SEC = 300;
+// CODAP v3 tool shelf: the Graph button sits here relative to the iframe
+const GRAPH_BUTTON_OFFSET = { x: 92, y: 133 };
 const DRAG_FOLLOW_COOLDOWN_SEC = 10;
 const DRAG_FOLLOW_MAX_SEC = 45;       // safety cap on following one drag
 const DRAG_STALE_SEC = 3;             // no drag events this long -> assume over
@@ -184,6 +197,182 @@ export function makeBehaviors() {
       async run(actor) {
         actor.emote('?');
         await actor.play('curious');
+      },
+    },
+
+    // -------------------------------------------------- celebrate-first-selection
+    // First nonempty selection of the session -> nod + !. Outranks
+    // glance-at-selection (p30) once, then defers to it forever.
+    {
+      id: 'celebrate-first-selection',
+      priority: 55,
+      cooldownSec: 0,
+      trigger(state, event, mem) {
+        return !mem.done && event.type === 'selection' && (event.detail?.count ?? 0) >= 1;
+      },
+      async run(actor, state, ctx) {
+        ctx.mem.done = true;
+        actor.emote('!');
+        await actor.play(Math.random() < 0.5 ? 'nod_L' : 'nod_R');
+      },
+    },
+
+    // -------------------------------------------------- peer-at-big-selection
+    // A large selection -> swim beside the graph and peer at it.
+    // Must outrank glance-at-selection (p30) so big selections get the
+    // specific reaction, not the generic glance.
+    {
+      id: 'peer-at-big-selection',
+      priority: 32,
+      cooldownSec: BIG_SELECTION_COOLDOWN_SEC,
+      trigger: (state, event) =>
+        event.type === 'selection' && (event.detail?.count ?? 0) >= BIG_SELECTION_COUNT,
+      async run(actor, state, ctx) {
+        const c = [...state.components.values()].filter((k) => isGraph(k) && k.bounds).at(-1);
+        if (!c) { actor.emote('?'); await actor.play('curious'); return; }
+        const { x, y, w, h } = c.bounds;
+        await actor.moveTo(x + w + BESIDE_TILE_PX, y + h / 2);
+        actor.lookAt(x + w / 2, y + h / 2);
+        actor.emote('?');
+        await actor.play('curious');
+        await ctx.sleep(1.5);
+        actor.clearGaze();
+      },
+    },
+
+    // -------------------------------------------------- suggest-graph-for-data
+    // Data exists but no graph for a while, student active -> swim toward the
+    // tool shelf and point at the Graph button. Escalates to a tap + ?!.
+    {
+      id: 'suggest-graph-for-data',
+      priority: 35,
+      cooldownSec: SUGGEST_GRAPH_COOLDOWN_SEC,
+      _graphButton(state, ctx) {
+        const r = ctx.engine.bridge?.iframe?.getBoundingClientRect();
+        return { x: (r?.left ?? 0) + GRAPH_BUTTON_OFFSET.x, y: (r?.top ?? 0) + GRAPH_BUTTON_OFFSET.y };
+      },
+      trigger(state, event) {
+        if (event.type !== 'tick') return false;
+        if (state.idleSeconds > NUDGE_STUDENT_ACTIVE_SEC) return false;
+        if ([...state.components.values()].some(isGraph)) return false;
+        return [...state.dataContexts.values()].some(
+          (dc) => dc.caseEvents > 0 && now() - dc.lastCasesAt >= SUGGEST_GRAPH_AFTER_SEC);
+      },
+      satisfied: (state, event) =>
+        event.type === 'component:create' && isGraph(event.detail),
+      async run(actor, state, ctx) {
+        const b = this._graphButton(state, ctx);
+        await actor.moveTo(b.x + 120, b.y + 90);
+        actor.emote('?');
+        await actor.gestureAt(b.x, b.y);          // point at the Graph button
+        await ctx.sleep(2);
+        actor.release();
+      },
+      escalation: {
+        after: 2,
+        async run(actor, state, ctx) {
+          const b = this._graphButton(state, ctx);
+          await actor.moveTo(b.x + 90, b.y + 60);
+          actor.emote('?!');
+          await actor.tapAt(b.x, b.y);
+          await ctx.sleep(1.2);
+        },
+      },
+    },
+
+    // -------------------------------------------------- nudge-idle-table
+    // A session-created case table has sat there with no case additions ->
+    // subtle peer + ?; escalates to a tap. Any case creation satisfies it.
+    {
+      id: 'nudge-idle-table',
+      priority: 38,
+      cooldownSec: IDLE_TABLE_COOLDOWN_SEC,
+      _target(state) {
+        return [...state.components.values()].find((c) =>
+          (c.type ?? '').toLowerCase().includes('table') && !c.preexisting && c.bounds
+          && now() - c.createdAt >= IDLE_TABLE_AFTER_SEC
+          && ![...state.dataContexts.values()].some((dc) => dc.lastCasesAt > c.createdAt));
+      },
+      trigger(state, event) {
+        if (event.type !== 'tick') return false;
+        if (state.idleSeconds > NUDGE_STUDENT_ACTIVE_SEC) return false;
+        return !!this._target(state);
+      },
+      satisfied: (state, event) =>
+        event.type === 'cases:change'
+        && (event.detail?.operation === 'createCases' || event.detail?.operation === 'createItems'),
+      async run(actor, state, ctx) {
+        const c = this._target(state)
+          ?? [...state.components.values()].filter((k) => k.bounds).at(-1);
+        if (!c) { actor.emote('?'); await actor.play('hop'); return; }
+        const { x, y, w, h } = c.bounds;
+        await actor.moveTo(x + w + BESIDE_TILE_PX, y + h / 2);
+        actor.lookAt(x + w / 2, y + h / 2);
+        actor.emote('?');
+        await ctx.sleep(2.5);
+        actor.clearGaze();
+      },
+      escalation: {
+        after: 2,
+        async run(actor, state, ctx) {
+          const c = this._target(state)
+            ?? [...state.components.values()].filter((k) => k.bounds).at(-1);
+          if (!c) { actor.emote('?!'); await actor.play('hop'); return; }
+          const { x, y, w, h } = c.bounds;
+          await actor.moveTo(x + w / 2, y + h / 2 - 20);
+          actor.emote('?!');
+          await actor.tapAt(x + w / 2, y + h / 2 + 40);
+          await ctx.sleep(1.2);
+        },
+      },
+    },
+
+    // -------------------------------------------------- dance-on-data-milestone
+    // A data context crosses the case-count milestone -> dance + !.
+    // Case counts aren't in the notification, so the run queries the API and
+    // bails quietly below threshold (once per context, via mem).
+    {
+      id: 'dance-on-data-milestone',
+      priority: 45,
+      cooldownSec: DATA_MILESTONE_COOLDOWN_SEC,
+      trigger(state, event, mem) {
+        if (event.type !== 'cases:change') return false;
+        const op = event.detail?.operation;
+        if (op !== 'createCases' && op !== 'createItems') return false;
+        return !(mem.celebrated ?? []).includes(event.detail?.context ?? 'unknown');
+      },
+      async run(actor, state, ctx) {
+        const context = ctx.event?.detail?.context;
+        if (!context) return;
+        const r = await ctx.engine.bridge
+          ?.request('get', `dataContext[${context}].itemCount`)
+          .catch(() => null);
+        const n = typeof r?.values === 'number' ? r.values : r?.values?.itemCount ?? 0;
+        if (n < DATA_MILESTONE_CASES) return;      // not there yet — quiet bail
+        (ctx.mem.celebrated ??= []).push(context); // once per context
+        actor.emote('!');
+        actor.play('dance');                       // loop clip — time-box it
+        await ctx.sleep(2.6);
+        actor.release();
+      },
+    },
+
+    // -------------------------------------------------- scratch-on-thrash
+    // Rapid component churn (create/delete bursts) reads as flailing ->
+    // scratch head + ?. Long cooldown; purely sympathetic, never escalates.
+    {
+      id: 'scratch-on-thrash',
+      priority: 20,
+      cooldownSec: THRASH_COOLDOWN_SEC,
+      trigger(state, event) {
+        if (event.type !== 'component:create' && event.type !== 'component:delete') return false;
+        const t = now();
+        return state.componentChurn.filter((x) => t - x < THRASH_WINDOW_SEC).length >= THRASH_EVENTS;
+      },
+      async run(actor, state, ctx) {
+        state.componentChurn.length = 0;   // consume the burst
+        actor.emote('?');
+        await actor.play('scratch');
       },
     },
 

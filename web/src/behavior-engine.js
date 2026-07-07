@@ -45,6 +45,8 @@ export class BehaviorEngine {
     const state = {
       components: new Map(),          // id -> { id, type, title, bounds, createdAt,
                                       //         attrsAssigned, preexisting }
+      dataContexts: new Map(),        // name -> { name, caseEvents, lastCasesAt }
+      componentChurn: [],             // timestamps of recent create/delete events
       selection: null,                // { context, count, at }
       drag: null,                     // { phase, attribute, position, at }
       lastActionAt: now(),
@@ -59,7 +61,8 @@ export class BehaviorEngine {
 
     if (bridge) {
       const types = ['component:create', 'component:delete', 'component:move',
-        'component:resize', 'component:attributeChange', 'selection', 'drag'];
+        'component:resize', 'component:attributeChange', 'selection', 'drag',
+        'cases:change'];
       for (const t of types) {
         bridge.addEventListener(t, (e) => this._onEvent(t, e.detail ?? {}, true));
       }
@@ -140,6 +143,12 @@ export class BehaviorEngine {
 
   _updateModel(type, detail, real) {
     const s = this.state;
+    if (type === 'component:create' || type === 'component:delete') {
+      // model-owned churn history: triggers can't miss events that a
+      // higher-priority behavior consumed in the same evaluation
+      s.componentChurn.push(now());
+      if (s.componentChurn.length > 20) s.componentChurn.shift();
+    }
     if (type === 'component:create') {
       if (detail.id == null) detail.id = `sim-${++this._simSeq}`;
       s.components.set(detail.id, {
@@ -162,6 +171,15 @@ export class BehaviorEngine {
       s.selection = { ...detail, at: now() };
     } else if (type === 'drag') {
       s.drag = { ...detail, at: now() };
+    } else if (type === 'cases:change') {
+      const name = detail.context ?? 'unknown';
+      const dc = s.dataContexts.get(name)
+        ?? { name, caseEvents: 0, lastCasesAt: 0 };
+      if (detail.operation === 'createCases' || detail.operation === 'createItems') {
+        dc.caseEvents++;
+        dc.lastCasesAt = now();
+      }
+      s.dataContexts.set(name, dc);
     }
   }
 

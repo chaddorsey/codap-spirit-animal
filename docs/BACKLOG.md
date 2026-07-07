@@ -2,7 +2,7 @@
 
 ## Queued
 
-0. **Proposed behaviors** — `docs/BEHAVIORS.md` lists 8 specced-but-unbuilt
+0. ~~Proposed behaviors~~ — DONE 2026-07-07: all 8 originally-proposed
    behaviors (selection glance, drag-follow, suggest-graph, milestones…). Each
    is a one-entry change via `docs/PLAYBOOK-behaviors.md`; all needed clips
    exist. Good cheap-model tasks.

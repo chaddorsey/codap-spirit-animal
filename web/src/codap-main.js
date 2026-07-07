@@ -119,6 +119,8 @@ const sims = {
     engine.simulate('component:attributeChange', { id, type: 'graph' });
   },
   'selection': () => engine.simulate('selection', { context: 'sim', count: 3 }),
+  'selection-big': () => engine.simulate('selection', { context: 'sim', count: 12 }),
+  'cases-change': () => engine.simulate('cases:change', { context: 'sim', operation: 'createCases' }),
   'drag-seq': async () => {
     engine.simulate('drag', { phase: 'dragstart', attribute: 'simAttr' });
     await new Promise(r => setTimeout(r, 600));

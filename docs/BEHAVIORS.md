@@ -22,7 +22,20 @@ character returns to idle · the overlay never intercepts input.
 | `follow-attribute-drag` ᵃ | `drag` (`dragstart`) | always | `?` emote; gaze tracks drag position; on drop: `!` + `celebrate`; on dragend/stall: clear | 10 s | none | 70 | celebrate |
 | `glance-at-selection` ᵃ | `selection` | count ≥ 1 | `?` emote → `curious` | 20 s | none | 30 | curious |
 
+| `celebrate-first-selection` ᵇ | `selection` | count ≥ 1, once per session | `!` + `nod_L/R` | once/session | none | 55 | nod_L, nod_R |
+| `dance-on-data-milestone` ᵇ | `cases:change` (`createCases`/`createItems`) | context's itemCount ≥ 25 (queried in `run`, quiet bail below); once per context | `!` + `dance` (time-boxed loop) | 20 s | none | 45 | dance |
+| `nudge-idle-table` ᵇ | clock tick | session-created case table >180 s with no case additions since; student active | swim beside → gaze → `?` | 120 s | after 2: onto tile + tap + `?!`; any case creation satisfies | 38 | tap_L/R |
+| `suggest-graph-for-data` ᵇ | clock tick | data has cases, no graph exists ≥90 s; student active | swim toward tool shelf → `?` + point at Graph button | 180 s | after 2: tap at the button + `?!`; graph creation satisfies | 35 | point_L/R, tap_L/R |
+| `peer-at-big-selection` ᵇ | `selection` | count ≥ 10 (outranks glance) | swim beside graph → gaze → `?` + `curious` | 60 s | none | 32 | curious |
+| `scratch-on-thrash` ᵇ | `component:create`/`delete` | ≥4 create/delete events in 30 s (model-owned churn history) | `?` + `scratch` | 300 s | none | 20 | scratch |
+
 ᵃ Added post-Phase-4 (2026-07-07), restoring the retired spike reactions.
+ᵇ Added 2026-07-07. All six verified by simulation (debug panel) with
+selfTest 18/18; `dance-on-data-milestone` also live-verified (real 30-item
+creation → `createCases` → API `itemCount` query → dance). The v3 `itemCount`
+resource works from the wrapper. Churn for `scratch-on-thrash` is tracked in
+the engine's student model (`state.componentChurn`), not in behavior `mem` —
+trigger-side counters miss events consumed by higher-priority firings.
 `follow-attribute-drag` sets `ignoreActivity: true` — it accompanies continuous
 student action and self-terminates rather than being cancelled by the drag it
 is following. `glance-at-selection` live-verified (table-row click →
@@ -41,16 +54,12 @@ Notes:
   an event count, not axis state; removal of an attribute also increments it.
   Good enough for "has the student ever touched this graph's axes."
 
-## Proposed (next candidates — all clips already exist unless noted)
+## Proposed (next candidates)
 
-| id | Trigger | Condition | Sequence | Cooldown | Escalation | Priority | Clips needed |
-|---|---|---|---|---|---|---|---|
-| `suggest-graph-for-data` | clock tick | a dataContext has cases but no graph exists for >90 s; student active | swim toward the toolbar area → `point_L/R` at the Graph button coords → `?` | 180 s | after 2: tap at the Graph button + `?!` | 35 | point ✓, tap ✓ |
-| `celebrate-first-selection` | `selection` | first nonempty selection of the session | `nod_L/R` toward the graph → `!` | once/session | none | 55 | nod_L/R ✓ |
-| `peer-at-big-selection` | `selection` | count ≥ 10 cases | swim beside the graph → `curious` → `?` | 60 s | none | 25 | curious ✓ |
-| `nudge-idle-table` | clock tick | a case table exists >180 s with 0 cases added; student active elsewhere | swim beside table → gaze → `?` | 120 s | after 2: tap on the table + `?!` | 38 | tap ✓ |
-| `dance-on-data-milestone` | `cases:change` | `createCases` pushes a context past 25 cases (once per threshold) | `dance` (short) + `!` | once/context | none | 45 | dance ✓ |
-| `scratch-on-thrash` | any component event | ≥4 create/delete events within 30 s (student flailing) | `scratch` + `?` | 300 s | none | 20 | scratch ✓ |
+All eight originally-proposed behaviors are now implemented (see above). Fresh
+candidates worth speccing when needed: acknowledge-dismissed-nudge (`droop`
+after a nudge target is deleted), celebrate-first-map, react-to-formula-edit,
+point-at-undo-after-thrash.
 
 Design conventions for new rows: subtle before overt; cooldowns err long
 (anti-annoyance beats responsiveness); priorities — celebrations 45–80,
