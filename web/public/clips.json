@@ -76,7 +76,7 @@
   },
   {
     "name": "tinkerbell",
-    "seconds": 5.4,
+    "seconds": 5.0,
     "loop": false,
     "anchorShift": [
       -0.7764571353075622,
