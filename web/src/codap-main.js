@@ -135,6 +135,14 @@ const sims = {
 };
 document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.dataset.sim]; });
 
+// mood debug: crank one dial high (others untouched) to provoke gated squibs
+document.querySelectorAll('[data-mood]').forEach(b => {
+  b.onclick = () => {
+    engine.state.mood[b.dataset.mood] = 0.95;
+    logLine(`mood: ${b.dataset.mood} -> 0.95`, '#0b7285');
+  };
+});
+
 // character clip test buttons (bypass the engine; loops toggle back to idle)
 document.querySelectorAll('[data-clip]').forEach(b => {
   b.onclick = () => {
@@ -151,9 +159,13 @@ document.querySelectorAll('[data-clip]').forEach(b => {
 setInterval(() => {
   const s = engine.state;
   const a = s.active;
+  const m = s.mood;
   const lines = [
     `components ${s.components.size}   idle ${s.idleSeconds.toFixed(0)}s   ` +
     `active ${a ? a.id + (a.escalated ? ' ESC' : '') : '—'}`,
+    `mood  play ${m.playful.toFixed(2)}  curi ${m.curious.toFixed(2)}  ` +
+    `slpy ${m.sleepy.toFixed(2)}  misc ${m.mischievous.toFixed(2)}  ` +
+    `spd ×${(axo.speedFactor ?? 1).toFixed(2)}`,
   ];
   for (const d of engine.debugInfo()) {
     lines.push(`${d.id.padEnd(21)} p${String(d.priority).padStart(2)} ` +

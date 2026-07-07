@@ -152,7 +152,9 @@ export class Axolotl {
 
   // ------------------------------------------------------------ locomotion
   /** Swim to a screen point. Resolves on arrival. */
-  moveTo(px, py, { pixelsPerSecond = 260 } = {}) {
+  moveTo(px, py, { pixelsPerSecond } = {}) {
+    // speedFactor is a felt-only mood influence set by the behavior engine
+    pixelsPerSecond ??= 260 * (this.speedFactor ?? 1);
     const target = this.stage.worldFromScreen(px, py);
     this.motion?.resolve?.();
     this.setBase('swim');

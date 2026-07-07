@@ -31,6 +31,25 @@ const TICK_INTERVAL_SEC = 1;      // time-based triggers evaluated at this rate
 const BOUNDS_RETRIES = 10;        // componentList lags creates by seconds
 const BOUNDS_RETRY_MS = 600;
 
+// ---- mood drift rates (per second; see docs/CHARACTER.md "Mood") ----
+const SLEEPY_RISE_PER_IDLE_SEC = 0.003;   // ~5 min of idle to fully sleepy
+const SLEEPY_WAKE_FACTOR = 0.3;           // sharp drop on any student action
+const PLAYFUL_BUMP_PER_ACTION = 0.06;     // activity bursts energize
+const PLAYFUL_DECAY_PER_SEC = 0.002;
+const CURIOUS_DECAY_PER_SEC = 0.01;
+const CURIOUS_SPIKE = {                   // new-thing events spike curiosity
+  'component:create': 0.35, 'selection': 0.2, 'drag': 0.2,
+  'component:attributeChange': 0.25, 'cases:change': 0.1,
+};
+const MISCHIEF_RISE_PER_SEC = 0.005;      // "unspent energy": accrues while
+const MISCHIEF_PLAYFUL_GATE = 0.6;        // playful is high...
+const MISCHIEF_DECAY_PER_SEC = 0.005;     // ...drains when it isn't
+// felt-only influence on locomotion: playful swims faster, sleepy slower
+const SPEED_PLAYFUL_GAIN = 0.2;
+const SPEED_SLEEPY_LOSS = 0.3;
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
 export class BehaviorEngine {
   constructor(actor, bridge, behaviors = [], { log = () => {} } = {}) {
     this.actor = actor;
@@ -51,6 +70,9 @@ export class BehaviorEngine {
       drag: null,                     // { phase, attribute, position, at }
       lastActionAt: now(),
       active: null,                   // { id, escalated, startedAt, token }
+      // felt-only mood dials (0..1) — see docs/CHARACTER.md; drift in tick,
+      // event bumps in _onEvent/_studentActed; never shown to students
+      mood: { playful: 0.5, curious: 0.5, sleepy: 0.1, mischievous: 0 },
     };
     Object.defineProperty(state, 'idleSeconds', {
       get: () => now() - state.lastActionAt, enumerable: true,
@@ -78,12 +100,25 @@ export class BehaviorEngine {
     this._meta.set(behavior.id, { lastFiredAt: -Infinity, fires: 0, ignored: 0, mem: {} });
   }
 
-  /** Drive time-based triggers; call from the render loop with dt seconds. */
+  /** Drive time-based triggers + mood drift; call from the render loop. */
   tick(dt) {
     this._tickAccum += dt;
     if (this._tickAccum < TICK_INTERVAL_SEC) return;
+    this._tickMood(this._tickAccum);
     this._tickAccum = 0;
     this._evaluate({ type: 'tick', detail: {} });
+  }
+
+  _tickMood(dt) {
+    const m = this.state.mood;
+    m.sleepy = clamp01(m.sleepy
+      + (this.state.idleSeconds > 5 ? SLEEPY_RISE_PER_IDLE_SEC * dt : 0));
+    m.playful = clamp01(m.playful - PLAYFUL_DECAY_PER_SEC * dt);
+    m.curious = clamp01(m.curious - CURIOUS_DECAY_PER_SEC * dt);
+    m.mischievous = clamp01(m.mischievous
+      + (m.playful > MISCHIEF_PLAYFUL_GATE ? MISCHIEF_RISE_PER_SEC : -MISCHIEF_DECAY_PER_SEC) * dt);
+    // felt-only locomotion influence (additive Axolotl property)
+    this.actor.speedFactor = 1 + SPEED_PLAYFUL_GAIN * m.playful - SPEED_SLEEPY_LOSS * m.sleepy;
   }
 
   /** Inject a synthetic bridge event (debug panel / selfTest). Updates the
@@ -123,6 +158,8 @@ export class BehaviorEngine {
 
   _onEvent(type, detail, real) {
     this._updateModel(type, detail, real);
+    const spike = CURIOUS_SPIKE[type];
+    if (spike) this.state.mood.curious = clamp01(this.state.mood.curious + spike);
     this._studentActed();
     const event = { type, detail };
     for (const b of this.behaviors) {
@@ -134,6 +171,8 @@ export class BehaviorEngine {
   _studentActed() {
     const s = this.state;
     s.lastActionAt = now();
+    s.mood.sleepy = clamp01(s.mood.sleepy * SLEEPY_WAKE_FACTOR);
+    s.mood.playful = clamp01(s.mood.playful + PLAYFUL_BUMP_PER_ACTION);
     // ignoreActivity behaviors accompany continuous student action (e.g.
     // following a drag) — they self-terminate instead of being cancelled
     if (s.active && !s.active.ignoreActivity && now() > s.active.graceUntil) {
@@ -268,7 +307,31 @@ export class BehaviorEngine {
         await sleep(intervalMs / 1000);
       }
     };
-    return { event, mem, sleep, untilCancelled, waitFor, engine: this };
+    // weighted random choice for performance variety; weights default uniform.
+    // Behaviors compute mood-based weights themselves (state.mood is theirs).
+    const pick = (options, weights) => {
+      const w = weights ?? options.map(() => 1);
+      let total = 0;
+      for (const x of w) total += Math.max(0, x);
+      if (total <= 0) return options[0];
+      let r = Math.random() * total;
+      for (let i = 0; i < options.length; i++) {
+        r -= Math.max(0, w[i]);
+        if (r <= 0) return options[i];
+      }
+      return options[options.length - 1];
+    };
+    return { event, mem, sleep, untilCancelled, waitFor, pick, engine: this };
+  }
+
+  /** Unregister a behavior (debug/selfTest hygiene). */
+  remove(id) {
+    const i = this.behaviors.findIndex((b) => b.id === id);
+    if (i < 0) return false;
+    if (this.state.active?.id === id) this.cancelActive(`remove ${id}`);
+    this.behaviors.splice(i, 1);
+    this._meta.delete(id);
+    return true;
   }
 
   async _seedComponents() {
@@ -387,7 +450,45 @@ export class BehaviorEngine {
       await rest(0.1);
       check('student action cancels in-flight intervention (≤1s)',
         this.state.active === null);
+
+      // 5. mood: drift + event bumps
+      const mood = this.state.mood;
+      const savedMood = { ...mood };
+      Object.assign(mood, { playful: 0.5, curious: 0.5, sleepy: 0.2, mischievous: 0 });
+      this.state.lastActionAt = now() - 30;         // idle enough to drowse
+      this._tickMood(30);                            // simulate 30s of drift
+      check('mood drifts on tick (sleepy rises while idle)', mood.sleepy > 0.2);
+      const sleepyBefore = mood.sleepy;
+      const playfulBefore = mood.playful;
+      this.simulate('selection', { context: 'selfTest', count: 1 });
+      check('student action wakes (sleepy drops, playful bumps)',
+        mood.sleepy < sleepyBefore && mood.playful > playfulBefore);
+
+      // 6. mood-gated trigger blocks below threshold, fires above
+      this.add({
+        id: 'st-mood-gate', priority: 1, cooldownSec: 0,
+        trigger: (s, e) => e.type === 'tick' && s.mood.playful > 0.7,
+        run: async () => {},
+      });
+      mood.playful = 0.2;
+      this._evaluate({ type: 'tick', detail: {} });
+      check('mood-gated trigger blocked below threshold',
+        this.state.active?.id !== 'st-mood-gate');
+      this.cancelActive('selfTest');
+      mood.playful = 0.9;
+      this._evaluate({ type: 'tick', detail: {} });
+      check('mood-gated trigger fires above threshold',
+        this.state.active?.id === 'st-mood-gate');
+      this.cancelActive('selfTest');
+      this.remove('st-mood-gate');
+      Object.assign(mood, savedMood);
+
+      // 7. ctx.pick respects weights
+      const ctx = this._makeCtx({ cancelled: false, callbacks: [] }, {}, {});
+      const picks = new Set(Array.from({ length: 20 }, () => ctx.pick(['a', 'b'], [1, 0])));
+      check('ctx.pick honors zero weights', picks.size === 1 && picks.has('a'));
     } finally {
+      this.remove('st-mood-gate');
       this.cancelActive('selfTest');
       for (const id of simIds) this.state.components.delete(id);
       for (const [id, m] of savedMeta) Object.assign(this._meta.get(id), m);
