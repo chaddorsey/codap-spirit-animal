@@ -383,14 +383,14 @@ def _tinkerbell(t, P):
     x = y = 0.0                               # position, std screen frame
     roll = 0.0                                # lean, radians; + = lean left
     # three equal beats: PREP [0, 1/3) -- CIRCLE [1/3, 2/3) -- SETTLE [2/3, 1]
-    T1, T2 = 0.3863, 0.6149   # circle beat: 1.07s sweep
-    if t < 0.0696:                              # prep: dip to load the takeoff
-        k = t / 0.0696
+    T1, T2 = 0.3474, 0.5906   # circle 1.07s; swoop 0.70s
+    if t < 0.0740:                              # prep: dip to load the takeoff
+        k = t / 0.0740
         y = -0.30 * _smooth(k)
         b = sin(pi * k)
         P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
-    elif t < 0.2781:                            # prep: SWOOP up onto the shelf —
-        e = _smooth((t - 0.0696) / 0.2085)        # out to the right, then arcing
+    elif t < 0.2324:                            # prep: SWOOP up onto the shelf —
+        e = _smooth((t - 0.0740) / 0.1584)        # out to the right, then arcing
         b1 = (0.55, 0.55)                     # up-left; bezier control point
         u = 1 - e
         x = 2 * u * e * b1[0] + e * e * _TK_P2[0]
@@ -399,13 +399,13 @@ def _tinkerbell(t, P):
         ty = 2 * u * (b1[1] + 0.30) + 2 * e * (_TK_P2[1] - b1[1])
         lean = math.atan2(-tx, ty)            # lean into the travel direction,
         roll = lean * 0.45 * (4 * e * u) + _TK_ANG * e   # no tilt at launch/landing
-    elif t < 0.3476:                            # prep: settle onto the padded shelf
-        k = (t - 0.2781) / 0.0695        # one slight settle, no bounce
+    elif t < 0.3063:                            # prep: settle onto the padded shelf
+        k = (t - 0.2324) / 0.0739        # one slight settle, no bounce
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
     elif t < T1:                              # prep: spring wind-up — compress
-        k = (t - 0.3476) / (T1 - 0.3476)        # back along the launch tangent
+        k = (t - 0.3063) / (T1 - 0.3063)        # back along the launch tangent
         d = 0.13 * _smooth(k)
         x = _TK_P2[0] + sin(_TK_ANG) * d
         y = _TK_P2[1] - cos(_TK_ANG) * d
@@ -431,15 +431,15 @@ def _tinkerbell(t, P):
         roll = a - pi                         # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
-    elif t < 0.8380:                            # settle: ballistic mini-arc from
-        k = (t - T2) / (0.8380 - T2)            # circle exit up over the apex and
-        k = 1 - (1 - k) ** 2                  # rapid ease-out once off the circle
+    elif t < 0.8278:                            # settle: ballistic mini-arc from
+        k = (t - T2) / (0.8278 - T2)            # circle exit up over the apex and
+        k = 1 - (1 - k) ** 3                  # sharper ease-out once off the circle
         x = _TK_PX[0] + (_TK_P2[0] - _TK_PX[0]) * k     # down to the bob point
         y = _TK_PX[1] + _TK_ARC_B * k + _TK_ARC_A * k * k
         upr = min(1.0, k / _TK_KAPEX)         # upright by the apex
         roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
     else:                                     # three descending bounces to rest:
-        k = (t - 0.8380) / 0.1620                 # 0.2 BL, then gently damping
+        k = (t - 0.8278) / 0.1723                 # 0.2 BL, then gently damping
         x, y = _TK_P2
         seg = min(2.999, k * 3)
         i = int(seg)
@@ -695,7 +695,7 @@ CLIPS = [
     ("nod",       0.9, _nod,       False),
     ("nod_L",     1.8, _nod_for("L"), False),   # turn head left, then nod yes
     ("nod_R",     1.8, _nod_for("R"), False),   # turn head right, then nod yes
-    ("tinkerbell", 4.68, _tinkerbell, False),
+    ("tinkerbell", 4.4, _tinkerbell, False),
     ("celebrate", 1.6, _celebrate, False),
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
