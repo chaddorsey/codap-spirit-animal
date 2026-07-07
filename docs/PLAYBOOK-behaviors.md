@@ -92,6 +92,12 @@ cd web && npm run dev -- --host        # http://localhost:5199/codap.html
 5. Cancel check: while your behavior runs, act inside CODAP (drag a slider is
    the most reliable notifier) → log shows `✕ your-id cancelled (student action)`
    within ~1s.
+6. **Character check (docs/CHARACTER.md — binding):** would a kitten do this,
+   and would a 10-year-old smile? Timing rules hold (freeze before bursts,
+   overshoot-recover, proud beat, setbacks < 2 s, mischief exits fast)?
+   If it's an insight/pedagogical behavior: dressed as play, kitten-gestured,
+   one beat of solemnity max, and wrong-quietly? No pronouns for Dot — the
+   name, or "it".
 
 ## Common failure modes
 
