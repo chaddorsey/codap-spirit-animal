@@ -198,10 +198,10 @@ export class Axolotl {
   /** The full sleep cycle: drowsy eye-droop with the leftward tilt
    *  (dozeoff), then the snoring sleep loop, with Zzz's shortly after. */
   async doze() {
-    await this.play('dozeoff', { fade: 0.3 });
-    this.setBase('sleep', 0.35);
-    this.sleepSeconds = 6;                 // Zzz's begin ~2s into the snore
-    this.nextZzzAt = this.clock + 2;
+    await this.play('dozeoff', { fade: 0.6 });
+    this.setBase('sleep', 0.7);
+    this.sleepSeconds = 4;                 // Zzz's begin ~4s into the snore
+    this.nextZzzAt = this.clock + 4;
   }
 
   /** Cancel any in-flight motion / one-shot / hold / gaze / emote and return

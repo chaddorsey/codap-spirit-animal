@@ -724,7 +724,7 @@ CLIPS = [
     ("nod_R",     1.8, _nod_for("R"), False),   # turn head right, then nod yes
     ("tinkerbell", 4.24, _tinkerbell, False),
     ("celebrate", 1.6, _celebrate, False),
-    ("dozeoff",   2.4, _dozeoff,   False),  # drowsy transition into sleep
+    ("dozeoff",   4.8, _dozeoff,   False),  # drowsy transition into sleep
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
     # Phase 5 kitten squib clips
