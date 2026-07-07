@@ -42,6 +42,30 @@ const THRASH_WINDOW_SEC = 30;         // ...within this window
 const THRASH_COOLDOWN_SEC = 300;
 // CODAP v3 tool shelf: the Graph button sits here relative to the iframe
 const GRAPH_BUTTON_OFFSET = { x: 92, y: 133 };
+
+// ---- Phase 5 ambient squibs (mood-gated kitten life; docs/CHARACTER.md) ----
+const ZOOMIES_PLAYFUL_GATE = 0.7;
+const ZOOMIES_COOLDOWN_SEC = 240;
+const ZOOMIES_SPEED_PX_S = 950;       // zoomies are FAST, mood factor aside
+const ZOOMIES_LAPS = 4;
+const ABSORBED_CURIOUS_GATE = 0.6;
+const ABSORBED_COOLDOWN_SEC = 180;
+const ABSORBED_STARE_SEC = 4.5;       // one dot can hold it motionless
+const SIT_NEARBY_COOLDOWN_SEC = 300;
+const SIT_NEARBY_PLAYFUL_GATE = 0.5;  // affection follows shared energy
+const SIT_NEARBY_DURATION_SEC = 10;
+
+/** A random screen point not inside any known tile (kitten open water). */
+const openWater = (state) => {
+  const tiles = [...state.components.values()].filter((c) => c.bounds);
+  for (let i = 0; i < 8; i++) {
+    const x = 80 + Math.random() * (window.innerWidth - 160);
+    const y = 120 + Math.random() * (window.innerHeight - 240);
+    if (!tiles.some((c) => x > c.bounds.x - 40 && x < c.bounds.x + c.bounds.w + 40
+      && y > c.bounds.y - 40 && y < c.bounds.y + c.bounds.h + 40)) return { x, y };
+  }
+  return { x: window.innerWidth * 0.7, y: window.innerHeight * 0.75 };
+};
 const DRAG_FOLLOW_COOLDOWN_SEC = 10;
 const DRAG_FOLLOW_MAX_SEC = 45;       // safety cap on following one drag
 const DRAG_STALE_SEC = 3;             // no drag events this long -> assume over
@@ -82,7 +106,9 @@ export function makeBehaviors() {
       async run(actor, state, ctx) {
         ctx.mem.done = true;                       // once per session
         actor.emote('!');
-        await actor.play('celebrate');
+        // performance variety: high spirits favor the tinkerbell flourish
+        await actor.play(ctx.pick(['celebrate', 'tinkerbell'],
+          [1, 0.4 + state.mood.playful]));
       },
     },
 
@@ -105,6 +131,19 @@ export function makeBehaviors() {
         }, { timeoutSec: GREET_GEOMETRY_WAIT_SEC });
         if (!comp) return;                         // no geometry: greeting was the hop
         const { x, y, w, h } = comp.bounds;
+        // three greeting styles, mood-weighted: playful bounds over,
+        // sleepy/wary peeks first, otherwise the classic swim-beside
+        const style = ctx.pick(['classic', 'bounding', 'peek'],
+          [1, 0.5 + 2 * state.mood.playful, 0.3 + 2 * state.mood.sleepy]);
+        if (style === 'bounding') {
+          const here = actor.getPosition();
+          await actor.moveTo((here.x + x + w) / 2, (here.y + y + h / 2) / 2);
+          await actor.play('hop');                 // bounds instead of walking
+        } else if (style === 'peek') {
+          await actor.moveTo(x + w + BESIDE_TILE_PX + 90, y + h / 2 + 30);
+          actor.lookAt(x + w / 2, y + h / 2);
+          await ctx.sleep(0.9);                    // cautious beat first
+        }
         await actor.moveTo(x + w + BESIDE_TILE_PX, y + h / 2);
         actor.lookAt(x + w / 2, y + h / 2);
         await actor.play('curious');
@@ -376,6 +415,76 @@ export function makeBehaviors() {
       },
     },
 
+    // -------------------------------------------------- absorbed-discovery
+    // One plotted dot becomes the most interesting object in the universe:
+    // nose-close hover at a populated graph, utterly still, then drift off.
+    {
+      id: 'absorbed-discovery',
+      priority: 18,
+      cooldownSec: ABSORBED_COOLDOWN_SEC,
+      trigger: (state, event) => event.type === 'tick'
+        && state.mood.curious > ABSORBED_CURIOUS_GATE
+        && [...state.components.values()].some((c) =>
+          isGraph(c) && c.bounds && (c.attrsAssigned ?? 0) > 0),
+      async run(actor, state, ctx) {
+        const c = [...state.components.values()].filter((k) =>
+          isGraph(k) && k.bounds && (k.attrsAssigned ?? 0) > 0).at(-1);
+        if (!c) return;
+        // a "discovery spot" inside the plot area
+        const px = c.bounds.x + c.bounds.w * (0.3 + Math.random() * 0.4);
+        const py = c.bounds.y + c.bounds.h * (0.35 + Math.random() * 0.35);
+        await actor.moveTo(px + 60, py + 10);
+        actor.lookAt(px, py);
+        await ctx.sleep(ABSORBED_STARE_SEC);       // utterly absorbed
+        actor.clearGaze();
+        const away = openWater(state);
+        await actor.moveTo(away.x, away.y);        // drifts off, changed
+      },
+    },
+
+    // -------------------------------------------------- zoomies
+    // Brief energetic laps of open canvas for no reason at all; ends in an
+    // abrupt stop. Pure unspent joy.
+    {
+      id: 'zoomies',
+      priority: 15,
+      cooldownSec: ZOOMIES_COOLDOWN_SEC,
+      trigger: (state, event) =>
+        event.type === 'tick' && state.mood.playful > ZOOMIES_PLAYFUL_GATE,
+      async run(actor, state, ctx) {
+        for (let i = 0; i < ZOOMIES_LAPS; i++) {
+          const p = openWater(state);
+          await actor.moveTo(p.x, p.y, { pixelsPerSecond: ZOOMIES_SPEED_PX_S });
+        }
+        await actor.play('hop');                   // abrupt stop, shake it off
+        state.mood.playful *= 0.6;                 // energy spent
+      },
+    },
+
+    // -------------------------------------------------- sit-nearby
+    // Indirect affection: drift over and just... be near the student's
+    // most-used tile for a while. Never blocks it; leaves on any action.
+    {
+      id: 'sit-nearby',
+      priority: 12,
+      cooldownSec: SIT_NEARBY_COOLDOWN_SEC,
+      trigger(state, event) {
+        if (event.type !== 'tick') return false;
+        if (state.mood.playful < SIT_NEARBY_PLAYFUL_GATE) return false;
+        if (state.idleSeconds > NUDGE_STUDENT_ACTIVE_SEC) return false;
+        return [...state.components.values()].some((c) => c.bounds && c.lastInteractionAt);
+      },
+      async run(actor, state, ctx) {
+        const c = [...state.components.values()]
+          .filter((k) => k.bounds && k.lastInteractionAt)
+          .sort((a, b) => b.lastInteractionAt - a.lastInteractionAt)[0];
+        if (!c) return;
+        const { x, y, w, h } = c.bounds;
+        await actor.moveTo(x + w + BESIDE_TILE_PX - 10, y + h - 20);  // settle low, beside
+        await ctx.sleep(SIT_NEARBY_DURATION_SEC);  // companionable silence
+      },
+    },
+
     // -------------------------------------------------- idle-companion
     // No student action for 90s -> sleep. Any action cancels the
     // intervention (engine rule), actor.stop() restores the idle base,
@@ -389,7 +498,10 @@ export function makeBehaviors() {
         actor.setBase('sleep');
         await ctx.untilCancelled();               // sleeps until the student acts
       },
-      onCancel(actor) { actor.emote('!'); },      // wake with !
+      onCancel(actor) {                           // wake with ! — and sometimes
+        actor.emote('!');                         // the exaggerated post-nap
+        if (Math.random() < 0.5) actor.play('stretch');   // stretch (squib #1)
+      },
     },
 
   ];

@@ -199,13 +199,16 @@ export class BehaviorEngine {
     } else if (type === 'component:delete') {
       s.components.delete(detail.id);
     } else if (type === 'component:move' || type === 'component:resize') {
+      const c = s.components.get(detail.id);
+      if (c) c.lastInteractionAt = now();
       if (real) this._fetchBounds(detail.id);
-      else if (detail.bounds && s.components.has(detail.id)) {
-        s.components.get(detail.id).bounds = detail.bounds;
-      }
+      else if (detail.bounds && c) c.bounds = detail.bounds;
     } else if (type === 'component:attributeChange') {
       const c = s.components.get(detail.id);
-      if (c) c.attrsAssigned = (c.attrsAssigned ?? 0) + 1;
+      if (c) {
+        c.attrsAssigned = (c.attrsAssigned ?? 0) + 1;
+        c.lastInteractionAt = now();
+      }
     } else if (type === 'selection') {
       s.selection = { ...detail, at: now() };
     } else if (type === 'drag') {
