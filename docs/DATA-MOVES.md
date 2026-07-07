@@ -22,14 +22,21 @@ stream). Each move has a signature there. Confidence = how sure we are the
 signature exists/is unambiguous, pending live verification (30-min rule per
 op, as with `attributeChange`).
 
-| Move | Student gesture in CODAP | Notification signature (expected) | Conf. |
+**Live-verified 2026-07-07 against codap3.concord.org v3.0.3** (same probe
+method as `attributeChange`: perform the real gesture, capture the raw
+stream). ✅ = exact op observed.
+
+| Move | Student gesture in CODAP | Notification signature | Status |
 |---|---|---|---|
-| **Filtering** | select cases → eye-menu *Hide Selected/Unselected*; *Set Aside* in table; graph `filterFormula`; delete cases | `dataContextChangeNotice` ops `hideCases`/`showCases`/`setAside…`/`deleteCases`; component update carrying `filterFormula`/`hiddenCases` (we've already seen `filterFormula` in graph props) | High |
-| **Grouping** | drag a categorical attribute into the **middle of a graph** (legend — the iconic gesture, per ICOTS); split axis by category; *Group into Bins* in graph config | `component … attributeChange` where the role is legend (or the attr is categorical); component config change for binning | High |
-| **Summarizing** | Measure palette: mean/median/count/box-plot adornments; an aggregate formula (`mean()`, `count()`, …) in a new column | component change ops for measure toggles (same channel as `change slider value`); `updateAttributes` whose formula contains an aggregate function | High (adorn.) / High (formula) |
-| **Calculating** | new attribute (+ column) in the table, then a formula | `createAttributes` then `updateAttributes` (formula present; non-aggregate → calculating, aggregate → summarizing) | High |
-| **Merging/Joining** | drop a CSV in; copy data between tables; cross-table attribute drag | `createDataContext` (second context = new data arrived); cross-context ops | Medium (rare in class) |
-| **Making hierarchy** | drag an attribute **leftward** in the case table, creating a parent collection | `createCollection` / `moveAttribute` ops | High |
+| **Filtering (out)** | select cases → eye-menu *Hide Unselected Cases* | ✅ `component / hideUnselected` — includes **`numberHidden`** (how much got filtered!) + component id/type | Confirmed |
+| **Filtering (in)** | eye-menu *Show All Cases* | ✅ `component / showAllCases` | Confirmed |
+| **Filtering (variants)** | *Hide Selected Case*, *Display Only Selected* | same family (op names inferred: `hideSelected`, …) — one manual pass to enumerate | Inferred |
+| **Grouping** | drag a categorical attribute into the **middle of a graph** (legend — the iconic gesture, per ICOTS) | ✅ `component / legendAttributeChange` — includes `attributeName`, `attributeId`, `plotType`, `primaryAxis`. A DEDICATED op; zero inference | Confirmed |
+| **Summarizing (adornment)** | Measure palette: Mean (also Count, Median, StdDev, MAD, Box Plot) | ✅ `component / togglePlottedMean` with **`isChecked`**; family pattern `togglePlotted*` / measure toggles | Confirmed (mean; family inferred) |
+| **Calculating** | table **+** button → new column | ✅ `dataContextChangeNotice / createAttributes` | Confirmed |
+| **Calculating/Summarizing (formula)** | header menu → *Edit Formula* → Apply | ✅ triple: `updateCases` + `updateAttributes` (**`result.attrs[].formula` carries the full formula text** — aggregate-function regex separates summarizing from calculating) + `component / "edit formula"` | Confirmed |
+| **Merging/Joining** | drop a CSV in; cross-table ops | `createDataContext` expected; deferred (rare in class, file-drop hard to automate) | Deferred |
+| **Making hierarchy** | drag an attribute **leftward** onto the table's yellow *"Drop attribute to create collection"* strip | Drop zone arms visually but synthetic mouse drops don't register (3 attempts — likely needs real dnd event stream). Expected op `createCollection` per the v2 DI docs. **One manual drag while watching the wrapper's event-log panel will settle it** | Manual check pending |
 
 Two useful non-moves worth tracking as context (not celebrated as moves):
 making a graph (`component:create` graph — already tracked) and axis
@@ -82,15 +89,21 @@ rules already constrain its form: Dot will *attend to* the place where a
 move is available (perch beside the table's drag zone, peek at the legend
 area), never demonstrate-and-lecture.
 
-## 4. Live-verification checklist (before building)
+## 4. Live-verification checklist (2026-07-07)
 
-- [ ] Hide/show/setAside case ops: exact operation strings in v3's stream.
-- [ ] Legend assignment: does `attributeChange` distinguish legend from axis
-      (role/place in values)? If not: infer from attr type + graph state.
-- [ ] Measure adornment toggles: op names for mean/median/count.
-- [ ] `createAttributes`/`updateAttributes`: is the formula text included?
-- [ ] `createCollection`/`moveAttribute` on table hierarchy drag.
-- [ ] `createDataContext` on CSV drop.
+- [x] Hide/show case ops: `hideUnselected` (+`numberHidden`), `showAllCases`.
+- [x] Legend assignment: dedicated `legendAttributeChange` op with attribute
+      name/id + plotType — no inference needed.
+- [x] Measure adornment toggles: `togglePlottedMean` with `isChecked`
+      (family: Count/Median/StdDev/MAD/Box Plot in the same palette).
+- [x] `createAttributes` fires on new column; `updateAttributes` **includes
+      the formula text** in `result.attrs[].formula` — plus a bonus
+      `component / "edit formula"` op.
+- [ ] `createCollection` on the hierarchy drag: drop zone arms but synthetic
+      drops don't land — needs ONE manual drag while watching the event-log
+      panel (op name will appear as a raw line).
+- [ ] `createDataContext` on CSV drop (deferred; rare in class).
+- [ ] Enumerate remaining eye-menu variants (hide-selected, display-only).
 
 ## 5. Next phase hooks (suggesting moves — not yet)
 
