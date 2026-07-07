@@ -144,6 +144,7 @@ export class Axolotl {
 
   /** Display height of the character in pixels (approx; model is ~3.7 units). */
   setPixelHeight(px) {
+    this.pixelHeight = px;               // whisker halo sizes itself from this
     const s = px / (3.7 * this.stage.pixelsPerUnit);
     this.root.scale.setScalar(s);
   }

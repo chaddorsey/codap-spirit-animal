@@ -564,6 +564,36 @@ export function makeBehaviors() {
       },
     },
 
+    // -------------------------------------------------- yield-to-mouse
+    // The cursor entered Dot's whisker halo: like a cat noticing someone
+    // walking by, drift sweetly out of the way — prompt but unpanicked —
+    // with a small glance back at the spot. (Whisker fires 'mouse:near'.)
+    {
+      id: 'yield-to-mouse',
+      priority: 58,
+      cooldownSec: 8,
+      trigger: (state, event) => event.type === 'mouse:near',
+      async run(actor, state, ctx) {
+        const m = ctx.event?.detail ?? {};
+        const here = actor.getPosition();
+        // step away from the cursor, biased toward open water
+        const dx = here.x - (m.x ?? here.x - 1);
+        const dy = here.y - (m.y ?? here.y);
+        const len = Math.hypot(dx, dy) || 1;
+        let tx = here.x + (dx / len) * 190;
+        let ty = here.y + (dy / len) * 150;
+        if (tx < 60 || tx > window.innerWidth - 60
+          || ty < 90 || ty > window.innerHeight - 60) {
+          const p = openWater(state);
+          tx = p.x; ty = p.y;
+        }
+        await actor.moveTo(tx, ty, { pixelsPerSecond: 380 });   // prompt, polite
+        actor.lookAt(here.x, here.y);                // small glance back:
+        await ctx.sleep(0.9);                        // "you go ahead"
+        actor.clearGaze();
+      },
+    },
+
     // -------------------------------------------------- startle
     // Sudden mass vanishing (2+ tiles deleted fast) -> jump-back, then an
     // immediate curious "where did it go?" — recovery inside 2s (rule 4).

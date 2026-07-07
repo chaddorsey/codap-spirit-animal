@@ -86,9 +86,17 @@ value` ops (mapped to `slider:change`).
 
 | id | Trigger | Gate / condition | Sequence | Cooldown | Priority | Clips |
 |---|---|---|---|---|---|---|
+| `yield-to-mouse` | `mouse:near` (whisker halo) | cursor entered Dot's personal space | drift promptly-but-sweetly ~190 px away from the cursor, glance back ("you go ahead") | 8 s | 58 | — |
 | `peek-at-tile` | tick | curious > .55, tile exists | `ctx.pick` of Kilroy-over-the-top / side face-sliver (slow or medium emerge, never rapid) / curious hover; gaze into the tile; slip away | 180 s | 19 | kilroy |
 | `perch-on-tile` | tick | curious > .4, tile exists | sit on the top edge (`perch` loop), glance about; if sleepy > .35 and the student is quiet: nap on the ledge → droop → **fall** → startle → proud (< 2 s recovery) | 240 s | 16 | perch, droop, startle, proud |
 | `demo-peek-axis` | force-fire only | a graph exists | Kilroy aimed at the x-axis REGION (tile bounds + plot insets) — the targetability proof | — | 1 | kilroy |
+
+**The whisker** (`web/src/whisker.js`): the mouse is invisible over the
+cross-origin iframe, so Dot senses it only through a transparent
+pointer-events:auto halo riding at Dot's own position. One `mouseenter` →
+halo goes inert (every subsequent event, including the click the user was
+reaching for, passes through to CODAP) → `mouse:near` fires → Dot yields.
+Re-arms 2.5 s later. Input is never intercepted beyond that single enter.
 
 Terrain primitives (`web/src/terrain.js`) take **any** screen rect —
 `perchOn / peekSide / kilroyOver / fallFrom` — so the wise-kitten phase can

@@ -3,6 +3,7 @@ import { Axolotl } from './character.js';
 import { CodapBridge } from './codap-bridge.js';
 import { BehaviorEngine } from './behavior-engine.js';
 import { makeBehaviors } from './behaviors.js';
+import { Whisker } from './whisker.js';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -28,6 +29,11 @@ function logLine(text, cls = '') {
 const engine = new BehaviorEngine(axo, bridge, makeBehaviors(),
   { log: (t) => logLine(t, '#7048e8') });
 window.__axo = axo; window.__bridge = bridge; window.__engine = engine; // debug access
+
+// Dot's personal-space sense: the cursor brushing the whisker halo fires a
+// mouse:near event; the yield-to-mouse behavior scoots sweetly aside
+const whisker = new Whisker(axo, (x, y) => engine.simulate('mouse:near', { x, y }));
+window.__whisker = whisker;
 
 $('#panelToggle').onclick = () => $('#panel').classList.toggle('collapsed');
 $('#behaviors').onclick = (e) => {
@@ -183,6 +189,8 @@ stage.renderer.setAnimationLoop(() => {
   clock.last = now;
   axo.update(dt);
   engine.tick(dt);
+  whisker.enabled = engine.enabled;
+  whisker.update();
   stage.render();
 });
 
