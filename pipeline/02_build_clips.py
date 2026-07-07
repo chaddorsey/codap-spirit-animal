@@ -324,6 +324,23 @@ _TK_C = (_TK_H0[0] + _TK_R * cos(_TK_ANG),    # center to her right (clockwise)
          _TK_H0[1] + _TK_R * sin(_TK_ANG))
 _TK_A0 = pi + _TK_ANG                         # entry position angle (left edge)
 
+# --- overshoot exit: leave the circle 5 deg shy of a full revolution and
+# continue straight along the tangent, easing to an apex where the TAIL
+# reaches the height the HEAD TOP had at circle entry; then pivot upright
+# while easing into a drop back to the takeoff point (tail at its original
+# sitting height), and settle with decreasing bobs.
+_TK_SWEEP = 2 * pi - D(5)                     # 355 degrees of circle travel
+_TK_AX = _TK_A0 - _TK_SWEEP                   # exit position angle
+_TK_VX = (sin(_TK_AX), -cos(_TK_AX))          # exit tangent (up, ~20deg left)
+_TK_PX = (_TK_C[0] + _TK_R * cos(_TK_AX) - _TK_L * _TK_VX[0],   # exit pivot
+          _TK_C[1] + _TK_R * sin(_TK_AX) - _TK_L * _TK_VX[1])
+_TK_TAIL = 1.38                               # tail tip below pivot, rest pose
+_TK_HEADTOP = 2.0                             # head top above pivot, rest pose
+_TK_HT0 = _TK_P2[1] + _TK_HEADTOP * cos(_TK_ANG)   # head-top height at entry
+# apex: tail (TAIL below pivot along the tilted body axis) reaches _TK_HT0
+_TK_S = (_TK_HT0 + _TK_TAIL * _TK_VX[1] - _TK_PX[1]) / _TK_VX[1]
+_TK_APEX = (_TK_PX[0] + _TK_VX[0] * _TK_S, _TK_PX[1] + _TK_VX[1] * _TK_S)
+
 
 def _smooth(k):
     k = max(0.0, min(1.0, k))
@@ -348,10 +365,10 @@ def _tinkerbell(t, P):
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
-    elif t < 0.82:                            # the circle: head center rides it
-        kr = (t - 0.33) / 0.49                # clockwise, one full turn;
-        k = kr * kr * (2 - kr)                # ease-in only — exits at speed,
-        a = _TK_A0 - 2 * pi * k               # no stall into the descend
+    elif t < 0.70:                            # the circle: head center rides it
+        kr = (t - 0.33) / 0.37                # clockwise, 355 degrees;
+        k = kr * kr * (2 - kr)                # ease-in only — exits at speed
+        a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
         x = hx - _TK_L * sin(a)               # pivot trails head along velocity
@@ -359,20 +376,27 @@ def _tinkerbell(t, P):
         roll = a - pi                         # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
-    elif t < 0.92:                            # descend home along the body line
-        kd = (t - 0.82) / 0.10
-        e = 1 - (1 - kd) ** 2                 # ease-out only — enters at speed
-        x = _TK_P2[0] * (1 - e)
-        y = _TK_P2[1] * (1 - e)
-        roll = -2 * pi + _TK_ANG * (1 - e)    # ~upright, unwinding the lean
-    else:                                     # big landing bob + settling bobs
-        k = (t - 0.92) / 0.08
-        seg = min(1.999, k * 2)
+    elif t < 0.82:                            # overshoot: straight up the tangent,
+        k = (t - 0.70) / 0.12                 # easing to a stop at the apex
+        e = 1 - (1 - k) ** 2
+        x = _TK_PX[0] + _TK_VX[0] * _TK_S * e
+        y = _TK_PX[1] + _TK_VX[1] * _TK_S * e
+        roll = _TK_AX - pi                    # keep the departure lean
+    elif t < 0.93:                            # pivot upright + ease into the drop
+        k = (t - 0.82) / 0.11
+        e = k * k                             # ease-in — gathers speed downward
+        x = _TK_APEX[0] * (1 - e)
+        y = _TK_APEX[1] * (1 - e)
+        upr = min(1.0, k / 0.55)              # upright by ~halfway down
+        roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
+    else:                                     # decreasing bobs into sitting
+        k = (t - 0.93) / 0.07
+        seg = min(2.999, k * 3)
         i = int(seg)
         f = seg - i
-        amp = (0.24, 0.09)[i]
+        amp = (0.26, 0.12, 0.05)[i]
         y = -amp * sin(pi * f)
-        b = (0.9, 0.4)[i] * sin(pi * f)
+        b = (0.9, 0.5, 0.25)[i] * sin(pi * f)
         P.scale("root", 1 + 0.06 * b, 1 + 0.06 * b, 1 - 0.09 * b)
         roll = -2 * pi                        # upright (identity)
     P.loc("root", z=-x, y=y)                  # std x=right -> root z=left
@@ -580,7 +604,7 @@ CLIPS = [
     ("nod",       0.9, _nod,       False),
     ("nod_L",     1.8, _nod_for("L"), False),   # turn head left, then nod yes
     ("nod_R",     1.8, _nod_for("R"), False),   # turn head right, then nod yes
-    ("tinkerbell", 4.6, _tinkerbell, False),
+    ("tinkerbell", 5.4, _tinkerbell, False),
     ("celebrate", 1.6, _celebrate, False),
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
