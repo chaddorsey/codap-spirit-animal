@@ -36,7 +36,7 @@ stream). ✅ = exact op observed.
 | **Calculating** | table **+** button → new column | ✅ `dataContextChangeNotice / createAttributes` | Confirmed |
 | **Calculating/Summarizing (formula)** | header menu → *Edit Formula* → Apply | ✅ triple: `updateCases` + `updateAttributes` (**`result.attrs[].formula` carries the full formula text** — aggregate-function regex separates summarizing from calculating) + `component / "edit formula"` | Confirmed |
 | **Merging/Joining** | drop a CSV in; cross-table ops | `createDataContext` expected; deferred (rare in class, file-drop hard to automate) | Deferred |
-| **Making hierarchy** | drag an attribute **leftward** onto the table's yellow *"Drop attribute to create collection"* strip | Drop zone arms visually but synthetic mouse drops don't register (3 attempts — likely needs real dnd event stream). Expected op `createCollection` per the v2 DI docs. **One manual drag while watching the wrapper's event-log panel will settle it** | Manual check pending |
+| **Making hierarchy** | drag an attribute **leftward** onto the table's yellow *"Drop attribute to create collection"* strip | ✅ `dataContextChangeNotice / createCollection` (manually confirmed by Chad; synthetic drops don't land, humans do fine) | Confirmed |
 
 Two useful non-moves worth tracking as context (not celebrated as moves):
 making a graph (`component:create` graph — already tracked) and axis
@@ -99,9 +99,9 @@ area), never demonstrate-and-lecture.
 - [x] `createAttributes` fires on new column; `updateAttributes` **includes
       the formula text** in `result.attrs[].formula` — plus a bonus
       `component / "edit formula"` op.
-- [ ] `createCollection` on the hierarchy drag: drop zone arms but synthetic
-      drops don't land — needs ONE manual drag while watching the event-log
-      panel (op name will appear as a raw line).
+- [x] `createCollection` on the hierarchy drag — **manually confirmed by
+      Chad 2026-07-07**: `dataContextChangeNotice[…] createCollection`
+      (synthetic mouse drops don't land on the drop strip; humans do fine).
 - [ ] `createDataContext` on CSV drop (deferred; rare in class).
 - [ ] Enumerate remaining eye-menu variants (hide-selected, display-only).
 
