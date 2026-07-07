@@ -340,7 +340,7 @@ _TK_HT0 = _TK_P2[1] + _TK_HEADTOP * cos(_TK_ANG)   # head-top height at entry
 # settle arc: a ballistic mini-arc from the circle exit to the bob point —
 # constant horizontal drift, parabolic height fitted so the apex puts the
 # tail (hanging below an upright body) at the circle-entry head-top height
-_TK_YAPEX = _TK_HT0 + _TK_TAIL
+_TK_YAPEX = _TK_HT0 + _TK_TAIL - 0.5 * _TK_BL   # half BL below head-top mark
 _d = _TK_P2[1] - _TK_PX[1]
 _m = _d + 2 * (_TK_PX[1] - _TK_YAPEX)
 _TK_ARC_A = _m - math.sqrt(_m * _m - _d * _d)      # parabola y = y0 + Bk + Ak^2
@@ -368,13 +368,13 @@ def _tinkerbell(t, P):
         x = _TK_P2[0] * e
         y = -0.20 + (_TK_P2[1] + 0.20) * e
         roll = _TK_ANG * e
-    elif t < 0.305:                           # prep: quick bob (half-length pause)
-        k = (t - 0.24) / (0.305 - 0.24)
+    elif t < 0.272:                           # prep: brief bob on the "shelf"
+        k = (t - 0.24) / (0.272 - 0.24)
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
     elif t < T1:                              # prep: spring wind-up — compress
-        k = (t - 0.305) / (T1 - 0.305)        # back along the launch tangent
+        k = (t - 0.272) / (T1 - 0.272)        # back along the launch tangent
         d = 0.13 * _smooth(k)
         x = _TK_P2[0] + sin(_TK_ANG) * d
         y = _TK_P2[1] - cos(_TK_ANG) * d
@@ -383,7 +383,7 @@ def _tinkerbell(t, P):
         kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees
         # springy release: fast attack, gradual slowdown over the last
         # quarter-turn, small residual speed into the settle arc
-        k = (1 - (1 - kr) ** 2.2) * 0.92 + 0.08 * kr
+        k = (1 - (1 - kr) ** 2.2) * 0.75 + 0.25 * kr
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
