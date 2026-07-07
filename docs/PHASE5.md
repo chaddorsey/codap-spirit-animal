@@ -70,7 +70,7 @@ batting something — and can name its mood without any UI telling them.
 
 ## Measurable end state — ✅ COMPLETE 2026-07-07
 
-- [x] `CHARACTER.md` reviewed by Chad — she is **Dot**; wise-kitten register added at his direction.
+- [x] `CHARACTER.md` reviewed by Chad — the name is **Dot** ("it" or name-only, no gendered pronouns); wise-kitten register added at Chad's direction.
 - [x] selfTest passes — grew 18 → **32/32** (mood drift, wake bumps,
       mood-gate block/fire, pick weights, per-behavior force-fire).
 - [x] Every squib force-fireable + simulate-able; verified via mood-crank
