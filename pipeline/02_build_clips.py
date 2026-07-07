@@ -388,7 +388,11 @@ def _tinkerbell(t, P):
         kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees
         # springy release: fast attack, gradual slowdown over the last
         # quarter-turn, small residual speed into the settle arc
-        k = kr + 0.9 * kr * (1 - kr) ** 2            # springy attack, FULL speed at exit
+        # springy ramp over the first 12%, then dead-constant velocity all
+        # the way to the handoff (no easing anywhere after max speed)
+        _a = 0.12
+        _v = 1 / (1 - _a / 2)
+        k = _v * kr * kr / (2 * _a) if kr < _a else _v * (_a / 2 + (kr - _a))
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
