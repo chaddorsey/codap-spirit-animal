@@ -131,7 +131,7 @@ export class BehaviorEngine {
   _studentActed() {
     const s = this.state;
     s.lastActionAt = now();
-    if (s.active && now() - s.active.startedAt > ACTION_GRACE_SEC) {
+    if (s.active && now() > s.active.graceUntil) {
       this.cancelActive('student action');
     }
   }
@@ -180,7 +180,15 @@ export class BehaviorEngine {
     m.lastFiredAt = now();
     m.fires++;
     const token = { cancelled: false, callbacks: [] };
-    const active = { id: b.id, escalated, startedAt: now(), token };
+    // interventions triggered by a student event must not be cancelled by the
+    // notification burst of that same gesture; clock/forced firings have no
+    // triggering action, so any fresh action cancels them immediately
+    const triggeredByAction = event.type !== 'tick' && event.type !== 'force';
+    const startedAt = now();
+    const active = {
+      id: b.id, escalated, startedAt, token,
+      graceUntil: startedAt + (triggeredByAction ? ACTION_GRACE_SEC : 0),
+    };
     this.state.active = active;
     this.log(`▶ ${b.id}${escalated ? ' ESCALATED' : ''}${forced ? ' (forced)' : ''}`);
 
