@@ -1,4 +1,5 @@
 import iframePhone from 'iframe-phone';
+import { classifyDataMove } from './data-moves.js';
 
 /**
  * Host-side bridge to an embedded CODAP v3 (?embeddedServer=yes).
@@ -77,6 +78,9 @@ export class CodapBridge extends EventTarget {
       this._emit('drag', { phase: op, attribute: values?.text ?? values?.attribute?.name,
                            position: values?.position });
     }
+    // Phase 7: pedagogical layer — data moves (docs/DATA-MOVES.md)
+    const dm = classifyDataMove(resource, op, values);
+    if (dm) this._emit('datamove', dm);
     this._emit('activity', { resource, operation: op });
   }
 

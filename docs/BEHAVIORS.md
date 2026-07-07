@@ -82,6 +82,16 @@ components expose `xLowerBound/xUpperBound/pointColor/pointSize/plotType`
 (bat-a-point needs no fallback); slider drags emit `component / change slider
 value` ops (mapped to `slider:change`).
 
+## Phase 7 — data-move encouragement (2026-07-07, selfTest 42/42)
+
+| id | Trigger | Condition | Sequence | Cooldown | Priority | Clips |
+|---|---|---|---|---|---|---|
+| `cheer-data-move` | `datamove` (bridge classifier, `web/src/data-moves.js` — all ops live-verified) | per-move 90 s; habituation ≥7 acks → 30% glance | tier 1 first-of-kind: `!` + celebrate → **investigate the result** (swim over, head-tilt, absorbed stare); tier 2 repeats: proud+nod → nod → glance (novelty decay); tier 3 patterns: grouping→summarizing chain = dance, hierarchy = tinkerbell + Kilroy-over-table, filtering-in = startled double-take | 8 s engine | 75 | celebrate, tinkerbell, dance, head_tilt, proud, nod, startle |
+
+Data moves spike mood hardest of all events (curious +0.35, playful +0.25);
+`state.dataMoves` + `recentMoves` ring feed tiers and the Phase 8 detectors.
+Design + verified signatures: `docs/DATA-MOVES.md`.
+
 ## Phase 6 — terrain (2026-07-07, selfTest 36/36)
 
 | id | Trigger | Gate / condition | Sequence | Cooldown | Priority | Clips |

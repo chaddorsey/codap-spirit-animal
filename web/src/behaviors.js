@@ -87,6 +87,13 @@ const PERCH_NAP_SLEEPY_GATE = 0.35;   // sleepy enough on a ledge -> nap -> fall
 const PEEK_COOLDOWN_SEC = 180;
 const PEEK_CURIOUS_GATE = 0.55;
 
+// ---- Phase 7: data-move encouragement (docs/DATA-MOVES.md) ----
+const CHEER_PER_MOVE_COOLDOWN_SEC = 90;
+const CHEER_CHAIN_WINDOW_SEC = 120;   // grouping -> summarizing = the pattern
+const CHEER_HABITUATED_AT = 6;        // 7th+ repeat: mostly just a glance
+const CHEER_HABITUATED_CHANCE = 0.3;
+const INVESTIGATE_STARE_SEC = 3;
+
 const MISCHIEF_GATE = 0.6;            // both mischief acts need this much
 const TILE_MISCHIEF_COOLDOWN_SEC = 300;
 const TILE_MISCHIEF_NUDGE_PX = 12;    // real DI move, always undone
@@ -158,6 +165,116 @@ export function makeBehaviors() {
         // performance variety: high spirits favor the tinkerbell flourish
         await actor.play(ctx.pick(['celebrate', 'tinkerbell'],
           [1, 0.4 + state.mood.playful]));
+      },
+    },
+
+    // -------------------------------------------------- cheer-data-move
+    // The pedagogical heart (docs/DATA-MOVES.md): a student altered their
+    // data's contents, structure, or values. The celebration says "you did
+    // a thing"; the INVESTIGATION says "the thing you did made something
+    // worth looking at." Novelty decays like a kitten habituating; never
+    // grades, never teaches, cancels on any student action.
+    {
+      id: 'cheer-data-move',
+      priority: 75,
+      cooldownSec: 8,                 // distinct move types can cheer close together
+      trigger(state, event, mem) {
+        if (event.type !== 'datamove') return false;
+        const move = event.detail?.move;
+        if (!move || move === 'merging') return false;   // tracked, not cheered
+        const last = mem.lastAck?.[move] ?? -Infinity;
+        if (now() - last < CHEER_PER_MOVE_COOLDOWN_SEC) return false;
+        const acks = mem.acks?.[move] ?? 0;
+        if (acks >= CHEER_HABITUATED_AT && Math.random() > CHEER_HABITUATED_CHANCE) {
+          return false;               // habituated: decline in trigger, no dead firing
+        }
+        return true;
+      },
+      _target(state, detail) {
+        // where did the move happen? component ops carry the id; context
+        // ops (formula/hierarchy) point at the case table
+        const byId = detail?.componentId != null
+          && state.components.get(detail.componentId);
+        if (byId?.bounds) return byId;
+        const tiles = [...state.components.values()].filter((c) => c.bounds);
+        return tiles.find((c) => (c.type ?? '').toLowerCase().includes('table'))
+          ?? tiles.at(-1) ?? null;
+      },
+      async run(actor, state, ctx) {
+        const { move, kind, detail } = ctx.event?.detail ?? {};
+        if (!move) return;
+        const mem = ctx.mem;
+        (mem.acks ??= {})[move] = (mem.acks[move] ?? 0) + 1;
+        (mem.lastAck ??= {})[move] = now();
+        const acks = mem.acks[move];
+        const c = this._target(state, detail);
+        const at = c?.bounds && {
+          x: c.bounds.x + c.bounds.w / 2, y: c.bounds.y + c.bounds.h / 2,
+        };
+
+        // ---- tier 3: patterns outrank everything ----
+        const chained = move === 'summarizing' && state.recentMoves.some((r) =>
+          r.move === 'grouping' && now() - r.at < CHEER_CHAIN_WINDOW_SEC);
+        if (move === 'hierarchy') {
+          // the rarest, most structural move: tinkerbell, then Kilroy over
+          // the table — "what happened in there?!"
+          actor.emote('!');
+          await actor.play('tinkerbell');
+          if (c?.bounds) {
+            await kilroyOver(actor, c.bounds, ctx, { holdSec: 2.5, covers: [c.bounds] });
+          }
+          return;
+        }
+        if (chained) {
+          // grouping -> summarizing: the canonical analyst pattern
+          actor.emote('!');
+          actor.play('dance');
+          await ctx.sleep(1.6);
+          actor.release();
+          if (at) { actor.lookAt(at.x, at.y); await ctx.sleep(1.2); actor.clearGaze(); }
+          return;
+        }
+        if (move === 'filtering' && kind === 'in') {
+          // scope re-expanded: the delighted double-take
+          await actor.play('startle');
+          if (at) actor.lookAt(at.x, at.y);
+          await actor.play('curious');
+          actor.clearGaze();
+          return;
+        }
+
+        // ---- tier 1: first-of-a-kind this session ----
+        if ((state.dataMoves.get(move)?.count ?? 0) <= 1 || acks === 1) {
+          actor.emote('!');
+          await actor.play('celebrate');
+          if (c?.bounds) {
+            // the investigation — the beat that carries the pedagogy
+            const { x, y, w, h } = c.bounds;
+            await actor.moveTo(x + w + BESIDE_TILE_PX, y + h / 2);
+            const poi = move === 'grouping'
+              ? { x: x + w * 0.8, y: y + h * 0.5 }     // the new legend colors
+              : { x: x + w * 0.7, y: y + h * 0.4 };
+            actor.lookAt(poi.x, poi.y);
+            await actor.play('head_tilt');
+            await ctx.sleep(INVESTIGATE_STARE_SEC);    // utterly absorbed
+            actor.clearGaze();
+          }
+          return;
+        }
+
+        // ---- tier 2: warm, shrinking acknowledgment ----
+        if (acks <= 3) {
+          if (at) actor.faceToward(at.x);
+          actor.emote('!');
+          await actor.play('proud');
+          await actor.play(at && at.x < actor.getPosition().x ? 'nod_R' : 'nod_L');
+        } else if (acks <= CHEER_HABITUATED_AT) {
+          await actor.play('nod');
+        } else if (at) {
+          actor.lookAt(at.x, at.y);                    // just a fond glance
+          await ctx.sleep(1.0);
+          actor.clearGaze();
+        }
       },
     },
 

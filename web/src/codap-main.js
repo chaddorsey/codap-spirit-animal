@@ -127,6 +127,14 @@ const sims = {
   'selection': () => engine.simulate('selection', { context: 'sim', count: 3 }),
   'selection-big': () => engine.simulate('selection', { context: 'sim', count: 12 }),
   'cases-change': () => engine.simulate('cases:change', { context: 'sim', operation: 'createCases' }),
+  'dm-group': () => engine.simulate('datamove',
+    { move: 'grouping', kind: 'legend', detail: { attribute: 'simAttr' } }),
+  'dm-filter': () => engine.simulate('datamove',
+    { move: 'filtering', kind: 'out', detail: { numberHidden: 3 } }),
+  'dm-formula': () => engine.simulate('datamove',
+    { move: 'summarizing', kind: 'formula', detail: { formula: 'mean(x)' } }),
+  'dm-hierarchy': () => engine.simulate('datamove',
+    { move: 'hierarchy', kind: 'collection', detail: {} }),
   'drag-seq': async () => {
     engine.simulate('drag', { phase: 'dragstart', attribute: 'simAttr' });
     await new Promise(r => setTimeout(r, 600));

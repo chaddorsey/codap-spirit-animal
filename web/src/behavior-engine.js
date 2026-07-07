@@ -65,6 +65,8 @@ export class BehaviorEngine {
       components: new Map(),          // id -> { id, type, title, bounds, createdAt,
                                       //         attrsAssigned, preexisting }
       dataContexts: new Map(),        // name -> { name, caseEvents, lastCasesAt }
+      dataMoves: new Map(),           // move -> { count, firstAt, lastAt } (Phase 7)
+      recentMoves: [],                // ring of last {move, kind, at} for patterns
       componentChurn: [],             // timestamps of recent create/delete events
       componentDeletes: [],           // delete timestamps (startle watches these)
       selection: null,                // { context, count, at }
@@ -85,7 +87,7 @@ export class BehaviorEngine {
     if (bridge) {
       const types = ['component:create', 'component:delete', 'component:move',
         'component:resize', 'component:attributeChange', 'selection', 'drag',
-        'cases:change', 'slider:change'];
+        'cases:change', 'slider:change', 'datamove'];
       for (const t of types) {
         bridge.addEventListener(t, (e) => this._onEvent(t, e.detail ?? {}, true));
       }
@@ -221,6 +223,17 @@ export class BehaviorEngine {
     } else if (type === 'slider:change') {
       const c = s.components.get(detail.id);
       if (c) c.lastInteractionAt = now();
+    } else if (type === 'datamove') {
+      // a data move is the most alive-making event class there is
+      const dm = s.dataMoves.get(detail.move)
+        ?? { count: 0, firstAt: now(), lastAt: 0 };
+      dm.count++;
+      dm.lastAt = now();
+      s.dataMoves.set(detail.move, dm);
+      s.recentMoves.push({ move: detail.move, kind: detail.kind, at: now() });
+      if (s.recentMoves.length > 10) s.recentMoves.shift();
+      s.mood.curious = clamp01(s.mood.curious + 0.35);
+      s.mood.playful = clamp01(s.mood.playful + 0.25);
     } else if (type === 'cases:change') {
       const name = detail.context ?? 'unknown';
       const dc = s.dataContexts.get(name)
@@ -521,7 +534,46 @@ export class BehaviorEngine {
           (this.actor._covers ?? []).length === 0);
       }
 
-      // 8. ctx.pick respects weights
+      // 8. data-move pipeline (Phase 7): classifier fixtures + cheer tiers
+      try {
+        const { classifyDataMove } = await import('./data-moves.js');
+        const f1 = classifyDataMove('component', 'hideUnselected', { id: 1, numberHidden: 3 });
+        const f2 = classifyDataMove('component', 'legendAttributeChange',
+          { id: 1, attributeName: 'species', plotType: 'dotPlot' });
+        const f3 = classifyDataMove('dataContextChangeNotice[pets]', 'updateAttributes',
+          { result: { attrs: [{ formula: 'mean(weight)' }] } });
+        const f4 = classifyDataMove('dataContextChangeNotice[pets]', 'updateAttributes',
+          { result: { attrs: [{ formula: 'weight/age' }] } });
+        const f5 = classifyDataMove('component', 'togglePlottedMean', { isChecked: false });
+        check('classifier: filtering/grouping/summarizing/calculating fixtures',
+          f1?.move === 'filtering' && f2?.move === 'grouping'
+          && f3?.move === 'summarizing' && f4?.move === 'calculating'
+          && f5 === null);
+      } catch (err) { check('classifier fixtures load', false); }
+      const cheer = this._meta.get('cheer-data-move');
+      if (cheer) {
+        const savedCheer = { lastFiredAt: cheer.lastFiredAt,
+          mem: JSON.parse(JSON.stringify(cheer.mem)) };
+        cheer.lastFiredAt = -Infinity;
+        cheer.mem.acks = {}; cheer.mem.lastAck = {};
+        this.state.dataMoves.delete('grouping');
+        this.simulate('datamove', { move: 'grouping', kind: 'legend', detail: {} });
+        check('first data move fires cheer-data-move',
+          this.state.active?.id === 'cheer-data-move');
+        this.cancelActive('selfTest');
+        await rest(0.05);            // let the cancelled run's mem bookkeeping flush
+        cheer.lastFiredAt = -Infinity;
+        this.simulate('datamove', { move: 'grouping', kind: 'legend', detail: {} });
+        check('per-move cooldown blocks an immediate repeat cheer',
+          this.state.active === null);
+        Object.assign(cheer, { lastFiredAt: savedCheer.lastFiredAt });
+        cheer.mem.acks = savedCheer.mem.acks ?? {};
+        cheer.mem.lastAck = savedCheer.mem.lastAck ?? {};
+        this.state.dataMoves.delete('grouping');
+        this.state.recentMoves.length = 0;
+      }
+
+      // 9. ctx.pick respects weights
       const ctx = this._makeCtx({ cancelled: false, callbacks: [] }, {}, {});
       const picks = new Set(Array.from({ length: 20 }, () => ctx.pick(['a', 'b'], [1, 0])));
       check('ctx.pick honors zero weights', picks.size === 1 && picks.has('a'));

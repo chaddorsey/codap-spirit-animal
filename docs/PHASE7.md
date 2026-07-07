@@ -57,19 +57,21 @@ like any kitten, habituates.
    `dm:hierarchy`); selfTest grows: classifier table spot-checks, tier-1
    fires on first simulated move, tier-2 decay path, chain detection.
 
-## Measurable end state
+## Measurable end state — ✅ COMPLETE 2026-07-07
 
-- [ ] Classifier unit-checked in selfTest against captured op fixtures.
-- [ ] Live: legend drop → grouping cheer + investigation of the real graph
-      (screenshot); hide-unselected → filtering ack; mean toggle →
-      summarizing ack; formula apply → calculating vs `mean()` →
-      summarizing (both classified correctly, one screenshot).
-- [ ] Novelty decay demonstrated: same move fired 3× → responses visibly
-      shrink (log evidence).
-- [ ] Chain: grouping then summarizing inside 2 min → dance (live, screenshot).
-- [ ] Hierarchy path exercised via simulated `createCollection` (real drag
-      needs a human; op confirmed) → tinkerbell + Kilroy-over-table.
-- [ ] selfTest green; BEHAVIORS.md/DATA-MOVES.md/BACKLOG/PLAN updated; pushed.
+- [x] Classifier fixture-checked in selfTest (filtering/grouping/
+      summarizing-vs-calculating regex/uncheck-ignored): 42/42.
+- [x] Live: REAL legend drop → grouping cheer + investigation of the
+      actually-grouped graph (dm-grouping-investigate.png — species-colored
+      points visible); REAL hide-unselected → filtering cheer; REAL mean
+      toggle → summarizing.
+- [x] Novelty decay: grouping acks 2→3→4 walked the shrinking tiers
+      (proud+nod → nod), ledger verified.
+- [x] Chain: real grouping then real mean toggle inside 2 min → the dance
+      (dm-chain-dance.png).
+- [x] Hierarchy via simulated createCollection (op manually confirmed) →
+      tinkerbell + Kilroy over the table; covers cleaned after.
+- [x] selfTest 42/42; docs updated; pushed.
 
 ## Milestones
 
