@@ -40,7 +40,9 @@ the glb is committed.
 2. **Limb extension + new clips** (BACKLOG #2, #3) — pipeline geometry change, then
    clip work. Verify every clip visually in the console before moving on.
 3. **Emote glyph gap** (BACKLOG #4) — quick, isolated in `web/src/emotes.js`.
-4. **Phase 4: behavior engine** — the design intent:
+4. **Phase 4: behavior engine** — **full work order with acceptance criteria,
+   bail-outs, and scope boundaries lives in `docs/PHASE4.md` — follow that file.**
+   Design intent summary:
    - A small engine consuming `CodapBridge` semantic events plus timers, replacing the
      switchboard in `codap-main.js`. State: what the student has/hasn't done recently
      (per-component visit history, idle time, event counts).
