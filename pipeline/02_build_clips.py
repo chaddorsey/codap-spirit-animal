@@ -9,7 +9,8 @@ clip name) so the glTF exporter emits them as separate animations.
 LAYERING RULES (runtime depends on these -- keep them when adding clips):
 - body clips (idle, swim, hop, ...) never key eye bones
 - eye clips (blink) key ONLY eye bones
-- only hop/celebrate/dance/tinkerbell/nod_L/nod_R key root loc/scale/rot
+- only hop/celebrate/dance/tinkerbell/nod_L/nod_R and the Phase 5 squibs
+  (stretch/pounce/roll/startle/proud) key root loc/scale/rot
 - every clip keys from a zeroed pose; loops end exactly at start values
 
 Arms have a wrist hinge: arm_L/arm_R (upper) + hand_L/hand_R (outer third).
@@ -388,6 +389,144 @@ def _tinkerbell(t, P):
         gill_wave(P, t, D(5), 2)
 
 
+# --- Phase 5 kitten squib clips (see docs/CHARACTER.md timing rules) ------
+
+def _stretch(t, P):
+    # post-nap cat stretch: reach forward-low, butt up, quiver, release+shake
+    if t < 0.4:
+        e = _smooth(t / 0.4)
+    elif t < 0.7:
+        e = 1.0 + 0.03 * sin(10 * pi * t)            # held, quivering at max
+    else:
+        e = 1 - _smooth((t - 0.7) / 0.3)
+    P.rot("chest", x=D(-14 * e))                     # back arches
+    P.rot("spine", x=D(10 * e))                      # butt up
+    P.rot("head", x=D(-14 * e))                      # chin skyward
+    # arms reach down-and-out (lateral so the stretch reads on the
+    # front-facing ortho camera — pure-forward foreshortens to nothing)
+    P.aim("arm_L", (0.45, 0.55, -0.70), blend=e)
+    P.aim("arm_R", (0.45, -0.55, -0.70), blend=e)
+    P.scale("root", 1, 1 + 0.06 * e, 1)              # elongate
+    shake = D(6) * sin(14 * pi * t) if t > 0.82 else 0   # release shake
+    P.rot("root", y=shake)
+    gill_wave(P, t, D(3 + 6 * e), 1, sweep=D(-8 * e))
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(-8 * e) + D(3) * sin(2 * pi * t - i * 0.5))
+
+
+def _head_tilt(t, P):
+    # the unfamiliar-thing double tilt: right, through center, further left
+    if t < 0.3:
+        z = 24 * _smooth(t / 0.3)
+    elif t < 0.45:
+        z = 24                                        # hold the first tilt
+    elif t < 0.75:
+        z = 24 - 46 * _smooth((t - 0.45) / 0.3)       # swing through to -22
+    else:
+        z = -22 * (1 - _smooth((t - 0.75) / 0.25))    # settle out
+    P.rot("head", z=D(z), x=D(3))
+    gill_wave(P, t, D(9), 3)                          # gills perked, listening
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(4) * sin(2 * pi * t - i * 0.5))
+
+
+def _pounce(t, P):
+    # crouch-back anticipation -> spring forward with arms out -> overshoot
+    # wobble -> recover to start (comic rule 2: enthusiasm outruns skill)
+    if t < 0.3:                                       # coiled crouch
+        k = _smooth(t / 0.3)
+        P.loc("root", x=-0.10 * k, y=-0.14 * k)
+        P.scale("root", 1 + 0.07 * k, 1 + 0.07 * k, 1 - 0.10 * k)
+        P.rot("spine", x=D(8 * k))
+    elif t < 0.6:                                     # the spring
+        k = _smooth((t - 0.3) / 0.3)
+        P.loc("root", x=-0.10 + 0.62 * k, y=-0.14 + 0.44 * sin(pi * k))
+        st = 1 + 0.12 * sin(pi * k)
+        P.scale("root", 1 / st, 1 / st, st)
+        P.aim("arm_L", (0.95, 0.30, -0.15), blend=k)  # paws out front
+        P.aim("arm_R", (0.95, -0.30, -0.15), blend=k)
+        gill_wave(P, t, D(4), 1, sweep=D(-22 * k))    # gills flare back
+    elif t < 0.8:                                     # landing wobble
+        k = (t - 0.6) / 0.2
+        P.loc("root", x=0.52 + 0.06 * sin(3 * pi * k) * (1 - k), y=-0.06 * sin(pi * k))
+        w = 1 + 0.08 * sin(2 * pi * k) * (1 - k)
+        P.scale("root", w, w, 1 / w)
+        P.rot("root", y=D(10) * sin(2 * pi * k) * (1 - k))
+    else:                                             # trot back to start
+        k = _smooth((t - 0.8) / 0.2)
+        P.loc("root", x=0.52 * (1 - k))
+        P.rot("arm_L", x=0); P.rot("arm_R", x=0)
+        gill_wave(P, t, D(6), 2)
+
+
+def _roll(t, P):
+    # high-trust barrel roll: over onto the back, limb wiggle at the apex,
+    # complete the rotation and pop upright
+    spin = 2 * pi * _smooth(min(1.0, t * 1.25))       # full roll, eased
+    P.rot("root", x=spin)
+    apex = max(0.0, sin(pi * min(1.0, t * 1.25)))     # 1 when upside-down
+    P.loc("root", y=0.15 * apex)
+    wig = sin(8 * pi * t) * apex                      # paws paddling the air
+    P.rot("arm_L", x=D(40 * apex + 12 * wig))
+    P.rot("arm_R", x=D(-40 * apex - 12 * wig))
+    P.rot("leg_L", x=D(30 * apex - 12 * wig))
+    P.rot("leg_R", x=D(-30 * apex + 12 * wig))
+    gill_wave(P, t, D(8), 3)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(10 * apex) * sin(4 * pi * t - i * 0.7))
+
+
+def _startle(t, P):
+    # fearless -> startled flip: instant recoil-jump, gills flared, then
+    # immediate curious recovery (rule 4: setbacks last under 2 seconds)
+    jump = sin(pi * min(1.0, t * 2.5)) if t < 0.4 else 0.0
+    # vertical pop + shiver (depth recoil is invisible to the ortho camera)
+    P.loc("root", y=0.26 * jump)
+    P.rot("root", y=D(6) * sin(20 * pi * t) * jump)   # startled shiver
+    P.scale("root", 1 - 0.06 * jump, 1 - 0.06 * jump, 1 + 0.10 * jump)  # stretch tall
+    P.rot("chest", x=D(-12 * jump))                   # reared back
+    P.rot("arm_L", z=D(55 * jump))                    # arms splay
+    P.rot("arm_R", z=D(-55 * jump))
+    gill_wave(P, t, D(2), 1, sweep=D(-30 * jump))     # gills flare hard
+    if t >= 0.4:                                      # recovery: lean back in
+        k = _smooth((t - 0.4) / 0.6)
+        P.rot("head", z=D(14 * sin(pi * k)), x=D(4 * sin(pi * k)))  # curious tilt
+        gill_wave(P, t, D(8), 3)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(12 * jump))                   # tail stiffens
+
+
+def _proud(t, P):
+    # the after-anything beat: chest up, chin up, tiny lift, settle (rule 3)
+    k = min(1.0, t * 2.5, (1 - t) * 2.5)
+    e = _smooth(k)
+    P.rot("chest", x=D(-10 * e))                      # chest out
+    P.rot("head", x=D(-14 * e))                       # chin up
+    P.loc("root", y=0.08 * e)
+    P.scale("chest", 1 + 0.04 * e, 1 + 0.04 * e, 1 + 0.02 * e)
+    gill_wave(P, t, D(7), 1.5, sweep=D(-10 * e))      # gills high and slow
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(6 * e) * sin(2 * pi * t - i * 0.4))
+
+
+def _bat_for(side):
+    # kitten paw-bat: raise the paw high-forward, two quick down-across
+    # swipes, retract. Faster and swipier than tap; body stays planted.
+    s = 1 if side == "L" else -1
+    def fn(t, P):
+        reach = min(1.0, t * 4, (1 - t) * 4)
+        P.rot("chest", x=D(6 * reach))
+        P.rot("head", x=D(6 * reach), z=D(-6 * s * reach))   # eyes on the prey
+        P.aim(f"arm_{side}", (0.55, s * 0.60, 0.42), blend=reach)  # paw raised
+        swipes = max(0.0, sin(4 * pi * min(max((t - 0.25) / 0.55, 0), 1)))
+        # swipe down-and-across the front
+        P.aim(f"hand_{side}", (0.85, -s * 0.20, -0.45), blend=reach * swipes)
+        gill_wave(P, t, D(6), 3)
+        for i, name in enumerate(TAIL):
+            P.rot(name, x=D(6 * reach) * sin(4 * pi * t - i * 0.6))
+    return fn
+
+
 def _celebrate(t, P):
     spin = 2 * pi * min(1.0, t * 1.4)                # one full spin, then bounce
     P.rot("root", y=spin)
@@ -445,6 +584,15 @@ CLIPS = [
     ("celebrate", 1.6, _celebrate, False),
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
+    # Phase 5 kitten squib clips
+    ("stretch",   2.0, _stretch,   False),
+    ("head_tilt", 1.6, _head_tilt, False),
+    ("pounce",    1.3, _pounce,    False),
+    ("roll",      2.2, _roll,      False),
+    ("startle",   0.8, _startle,   False),
+    ("proud",     1.2, _proud,     False),
+    ("bat_L",     1.1, _bat_for("L"), False),
+    ("bat_R",     1.1, _bat_for("R"), False),
 ]
 
 for name, seconds, fn, loop in CLIPS:

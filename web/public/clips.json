@@ -93,5 +93,45 @@
     "name": "droop",
     "seconds": 1.5,
     "loop": false
+  },
+  {
+    "name": "stretch",
+    "seconds": 2.0,
+    "loop": false
+  },
+  {
+    "name": "head_tilt",
+    "seconds": 1.6,
+    "loop": false
+  },
+  {
+    "name": "pounce",
+    "seconds": 1.3,
+    "loop": false
+  },
+  {
+    "name": "roll",
+    "seconds": 2.2,
+    "loop": false
+  },
+  {
+    "name": "startle",
+    "seconds": 0.8,
+    "loop": false
+  },
+  {
+    "name": "proud",
+    "seconds": 1.2,
+    "loop": false
+  },
+  {
+    "name": "bat_L",
+    "seconds": 1.1,
+    "loop": false
+  },
+  {
+    "name": "bat_R",
+    "seconds": 1.1,
+    "loop": false
   }
 ]
