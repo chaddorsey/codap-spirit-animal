@@ -10,6 +10,7 @@ import iframePhone from 'iframe-phone';
  *   'component:create'  { id, type, title }
  *   'component:move'    { id }        'component:resize' { id }
  *   'component:delete'  { id }
+ *   'component:attributeChange' { id, type }   graph axis attribute (un)assigned
  *   'selection'         { context, count }
  *   'cases:change'      { context, operation }
  *   'drag'              { phase, attribute, position }   attribute drags
@@ -58,7 +59,8 @@ export class CodapBridge extends EventTarget {
     const op = values?.operation;
     if (resource === 'component' || resource.startsWith('component[')) {
       const kind = { create: 'component:create', delete: 'component:delete',
-                     move: 'component:move', resize: 'component:resize' }[op];
+                     move: 'component:move', resize: 'component:resize',
+                     attributeChange: 'component:attributeChange' }[op];
       if (kind) this._emit(kind, { id: values?.id, type: values?.type, title: values?.title });
     } else if (resource.startsWith('dataContextChangeNotice')) {
       const context = resource.match(/\[(.*)\]/)?.[1];

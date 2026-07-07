@@ -1,6 +1,8 @@
 import { Stage } from './stage.js';
 import { Axolotl } from './character.js';
 import { CodapBridge } from './codap-bridge.js';
+import { BehaviorEngine } from './behavior-engine.js';
+import { makeBehaviors } from './behaviors.js';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -8,12 +10,10 @@ axo.setPixelHeight(150);
 axo.setPosition(window.innerWidth - 220, window.innerHeight - 160);
 
 const bridge = new CodapBridge(document.getElementById('codap'));
-window.__axo = axo; window.__bridge = bridge;   // debug access
 
 // ------------------------------------------------------------- panel
 const $ = (s) => document.querySelector(s);
 const log = $('#log');
-let behaviorsOn = true;
 
 function logLine(text, cls = '') {
   const div = document.createElement('div');
@@ -24,10 +24,15 @@ function logLine(text, cls = '') {
   log.scrollTop = log.scrollHeight;
 }
 
+// ------------------------------------------------------------- engine
+const engine = new BehaviorEngine(axo, bridge, makeBehaviors(),
+  { log: (t) => logLine(t, '#7048e8') });
+window.__axo = axo; window.__bridge = bridge; window.__engine = engine; // debug access
+
 $('#panelToggle').onclick = () => $('#panel').classList.toggle('collapsed');
 $('#behaviors').onclick = (e) => {
-  behaviorsOn = !behaviorsOn;
-  e.currentTarget.innerHTML = `behaviors: <b>${behaviorsOn ? 'on' : 'off'}</b>`;
+  engine.enabled = !engine.enabled;
+  e.currentTarget.innerHTML = `behaviors: <b>${engine.enabled ? 'on' : 'off'}</b>`;
 };
 
 const calv = $('#calv');
@@ -49,7 +54,7 @@ document.querySelectorAll('[data-scale]').forEach(b => {
 });
 showCal();
 
-// component list -> visit buttons
+// component list -> visit buttons (debug utility, drives the actor directly)
 async function refreshComponents() {
   const comps = await bridge.components();
   const box = $('#components');
@@ -72,16 +77,6 @@ async function refreshComponents() {
 }
 $('#refresh').onclick = refreshComponents;
 
-// ------------------------------------------------------------- reactions
-// spike-level behaviors; the Phase 4 engine replaces this switchboard
-let idleTimer;
-function bumpIdle() {
-  clearTimeout(idleTimer);
-  if (axo.base === axo.actions.sleep) { axo.setBase('idle'); axo.emote('!'); }
-  idleTimer = setTimeout(() => axo.setBase('sleep'), 90_000);
-}
-bumpIdle();
-
 bridge.addEventListener('connected', () => {
   $('#conn').textContent = 'connected';
   $('#conn').classList.add('ok');
@@ -95,63 +90,64 @@ bridge.addEventListener('raw', (e) => {
   const { resource, values } = e.detail ?? {};
   logLine(`${resource ?? '?'} ${values?.operation ?? ''}`);
 });
+bridge.addEventListener('component:create', () => setTimeout(refreshComponents, 1500));
+bridge.addEventListener('component:delete', () => refreshComponents());
 
-bridge.addEventListener('component:create', async (e) => {
-  bumpIdle();
-  if (!behaviorsOn) return;
-  logLine(`component created: ${e.detail.type}`, '#b4530a');
-  axo.emote('!');
-  await axo.play('hop');
-  // the new tile may not be queryable the instant the notification fires,
-  // and the notification may omit the id — retry briefly, fall back to
-  // the most recently listed component
-  // componentList can lag several seconds behind the create notification
-  let c;
-  for (let i = 0; i < 10 && !c?.bounds; i++) {
-    if (i) await new Promise(r => setTimeout(r, 600));
-    const comps = await refreshComponents();
-    c = comps.find(k => k.id === e.detail.id) ?? comps.at(-1);
+// ------------------------------------------------------------- behaviors debug
+// force-fire buttons
+for (const b of engine.behaviors) {
+  const btn = document.createElement('button');
+  btn.textContent = b.id;
+  btn.onclick = () => engine.forceFire(b.id);
+  $('#forcefire').appendChild(btn);
+}
+
+// synthetic-event injection: every behavior is testable without CODAP
+const simBounds = () => ({
+  x: window.innerWidth * 0.22, y: window.innerHeight * 0.28, w: 340, h: 240,
+});
+const newestGraphId = () =>
+  [...engine.state.components.values()].filter(c => /graph/i.test(c.type)).at(-1)?.id;
+const sims = {
+  'create-graph': () => engine.simulate('component:create',
+    { type: 'graph', title: 'sim graph', bounds: simBounds() }),
+  'create-table': () => engine.simulate('component:create',
+    { type: 'caseTable', title: 'sim table', bounds: simBounds() }),
+  'attr-change': () => {
+    const id = newestGraphId();
+    if (id == null) return logLine('no graph known — simulate create-graph first', '#c92a2a');
+    engine.simulate('component:attributeChange', { id, type: 'graph' });
+  },
+  'selection': () => engine.simulate('selection', { context: 'sim', count: 3 }),
+  'drag-seq': async () => {
+    engine.simulate('drag', { phase: 'dragstart', attribute: 'simAttr' });
+    await new Promise(r => setTimeout(r, 600));
+    engine.simulate('drag', { phase: 'drop', attribute: 'simAttr' });
+  },
+  'age-120s': () => { engine.debugAgeComponents(120); logLine('components aged +120s', '#0b7285'); },
+  'idle-90s': () => { engine.debugIdle(90); logLine('idle clock advanced +90s', '#0b7285'); },
+  'selftest': async () => {
+    const r = await engine.selfTest();
+    logLine(`selfTest ${r.pass ? 'PASS' : 'FAIL'} ${r.passed}/${r.total}`, r.pass ? '#0b7285' : '#c92a2a');
+  },
+};
+document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.dataset.sim]; });
+
+// live state readout
+setInterval(() => {
+  const s = engine.state;
+  const a = s.active;
+  const lines = [
+    `components ${s.components.size}   idle ${s.idleSeconds.toFixed(0)}s   ` +
+    `active ${a ? a.id + (a.escalated ? ' ESC' : '') : '—'}`,
+  ];
+  for (const d of engine.debugInfo()) {
+    lines.push(`${d.id.padEnd(21)} p${String(d.priority).padStart(2)} ` +
+      `cd ${String(Math.ceil(d.cooldownRemaining)).padStart(3)}s ` +
+      `fires ${d.fires} ign ${d.ignored}${d.escalateAfter ? '/' + d.escalateAfter : ''}`);
   }
-  if (c?.bounds) {
-    logLine(`greeting new ${c.type} @ ${Math.round(c.bounds.x)},${Math.round(c.bounds.y)}`, '#0b7285');
-    await axo.moveTo(c.bounds.x + c.bounds.w + 55, c.bounds.y + c.bounds.h / 2);
-    axo.lookAt(c.bounds.x + c.bounds.w / 2, c.bounds.y + c.bounds.h / 2);
-    await axo.play('curious');
-    axo.clearGaze();
-  } else {
-    logLine('new component has no geometry yet', '#b4530a');
-  }
-});
-
-bridge.addEventListener('component:move', () => { bumpIdle(); refreshComponents(); });
-bridge.addEventListener('component:resize', () => { bumpIdle(); refreshComponents(); });
-bridge.addEventListener('component:delete', () => { bumpIdle(); refreshComponents(); });
-
-bridge.addEventListener('selection', async (e) => {
-  bumpIdle();
-  if (!behaviorsOn) return;
-  logLine(`selection: ${e.detail.count ?? '?'} cases in ${e.detail.context}`, '#b4530a');
-  axo.emote('?');
-  await axo.play('curious');
-});
-
-bridge.addEventListener('drag', async (e) => {
-  bumpIdle();
-  if (!behaviorsOn) return;
-  const { phase, position } = e.detail;
-  if (phase === 'dragstart') axo.emote('?');
-  if (phase === 'drag' && position) {
-    const r = bridge.iframe.getBoundingClientRect();
-    axo.lookAt(r.left + position.x, r.top + position.y);
-  }
-  if (phase === 'drop') { axo.clearGaze(); axo.emote('!'); await axo.play('celebrate'); }
-  if (phase === 'dragend') axo.clearGaze();
-});
-
-bridge.addEventListener('cases:change', (e) => {
-  bumpIdle();
-  logLine(`cases: ${e.detail.operation} (${e.detail.context})`);
-});
+  $('#bstate').textContent = lines.join('\n');
+}, 500);
 
 // ------------------------------------------------------------- loop
 const clock = { last: performance.now() };
@@ -160,6 +156,7 @@ stage.renderer.setAnimationLoop(() => {
   const dt = Math.min(0.05, (now - clock.last) / 1000);
   clock.last = now;
   axo.update(dt);
+  engine.tick(dt);
   stage.render();
 });
 

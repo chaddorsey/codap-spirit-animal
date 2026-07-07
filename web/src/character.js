@@ -124,6 +124,18 @@ export class Axolotl {
     if (this.oneShot) this._endOneShot(fade);
   }
 
+  /** Cancel any in-flight motion / one-shot / hold / gaze / emote and return
+   *  to the idle base. Resolves any pending moveTo/play promise. (Additive,
+   *  Phase 4 — the behavior engine's cancel path.) */
+  stop(fade = 0.2) {
+    if (this.motion) { const m = this.motion; this.motion = null; m.resolve?.(); }
+    this.targetFacing = 0;
+    if (this.oneShot) this._endOneShot(fade);
+    this.clearGaze();
+    this.clearEmote();
+    this.setBase('idle', fade);
+  }
+
   _endOneShot(fade = 0.35) {
     this.oneShot.fadeOut(fade);
     this.oneShot = null;
