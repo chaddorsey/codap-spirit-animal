@@ -66,17 +66,17 @@
   },
   {
     "name": "nod_L",
-    "seconds": 1.4,
+    "seconds": 1.8,
     "loop": false
   },
   {
     "name": "nod_R",
-    "seconds": 1.4,
+    "seconds": 1.8,
     "loop": false
   },
   {
     "name": "tinkerbell",
-    "seconds": 2.6,
+    "seconds": 4.6,
     "loop": false
   },
   {
