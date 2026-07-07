@@ -387,13 +387,14 @@ def _tinkerbell(t, P):
     elif t < 0.90:                            # settle: pivot upright, drop, and
         k = (t - 0.78) / 0.12                 # decelerate into a soft arrival
         e = k * k * (3 - 2 * k)               # ease in AND out — no slam
-        x = _TK_APEX[0] * (1 - e)
-        y = _TK_APEX[1] * (1 - e)
+        x = _TK_APEX[0] + (_TK_P2[0] - _TK_APEX[0]) * e   # down to the BOB POINT
+        y = _TK_APEX[1] + (_TK_P2[1] - _TK_APEX[1]) * e
         upr = min(1.0, k / 0.55)              # upright by ~halfway down
         roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
     else:                                     # settle: damped bobs into rest,
         k = (t - 0.90) / 0.10                 # in place at the bob point
-        y = -0.11 * sin(5 * pi * k) * (1 - k) ** 1.3
+        x, y = _TK_P2
+        y += -0.11 * sin(5 * pi * k) * (1 - k) ** 1.3
         b = max(0.0, -sin(5 * pi * k)) * (1 - k) * 0.5
         P.scale("root", 1 + 0.04 * b, 1 + 0.04 * b, 1 - 0.06 * b)
         roll = -2 * pi                        # upright (identity)
