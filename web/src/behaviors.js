@@ -17,6 +17,7 @@
  */
 
 import { now } from './behavior-engine.js';
+import { perchOn, peekSide, kilroyOver, fallFrom } from './terrain.js';
 
 const GREET_COOLDOWN_SEC = 8;
 const GREET_GEOMETRY_WAIT_SEC = 6;    // componentList lags creates; don't hang
@@ -64,6 +65,14 @@ const STARTLE_COOLDOWN_SEC = 60;
 const SIT_NEARBY_COOLDOWN_SEC = 300;
 const SIT_NEARBY_PLAYFUL_GATE = 0.5;  // affection follows shared energy
 const SIT_NEARBY_DURATION_SEC = 10;
+// ---- Phase 6 terrain behaviors ----
+const PERCH_COOLDOWN_SEC = 240;
+const PERCH_CURIOUS_GATE = 0.4;
+const PERCH_SIT_SEC = 11;
+const PERCH_NAP_SLEEPY_GATE = 0.35;   // sleepy enough on a ledge -> nap -> fall
+const PEEK_COOLDOWN_SEC = 180;
+const PEEK_CURIOUS_GATE = 0.55;
+
 const MISCHIEF_GATE = 0.6;            // both mischief acts need this much
 const TILE_MISCHIEF_COOLDOWN_SEC = 300;
 const TILE_MISCHIEF_NUDGE_PX = 12;    // real DI move, always undone
@@ -630,6 +639,92 @@ export function makeBehaviors() {
         await actor.moveTo(p.x, p.y);
         await actor.play('roll');
         await actor.play('proud');
+      },
+    },
+
+    // -------------------------------------------------- peek-at-tile
+    // A kid behind a wall: Kilroy over the top, a slow face-sliver around a
+    // side edge, or just hovering curiously nearby. Emerge speeds slow or
+    // medium — never distractingly rapid (Chad's brief).
+    {
+      id: 'peek-at-tile',
+      priority: 19,
+      cooldownSec: PEEK_COOLDOWN_SEC,
+      trigger: (state, event) => event.type === 'tick'
+        && state.mood.curious > PEEK_CURIOUS_GATE
+        && [...state.components.values()].some((c) => c.bounds),
+      async run(actor, state, ctx) {
+        const tiles = [...state.components.values()].filter((c) => c.bounds);
+        if (!tiles.length) return;
+        const c = ctx.pick(tiles);
+        const mode = ctx.pick(['kilroy', 'side', 'hover'], [1.2, 1.2, 0.8]);
+        const holdSec = 2 + Math.random() * 2;
+        if (mode === 'kilroy') {
+          await kilroyOver(actor, c.bounds, ctx, { t: 0.3 + Math.random() * 0.4, holdSec });
+        } else if (mode === 'side') {
+          const side = actor.getPosition().x < c.bounds.x + c.bounds.w / 2 ? 'left' : 'right';
+          const speed = ctx.pick(['slow', 'medium'],
+            [0.6 + state.mood.sleepy, 0.6 + state.mood.playful]);
+          await peekSide(actor, c.bounds, ctx, { side, speed, holdSec });
+        } else {
+          await actor.moveTo(c.bounds.x + c.bounds.w + 45, c.bounds.y + 30);
+          actor.lookAt(c.bounds.x + c.bounds.w / 2, c.bounds.y + c.bounds.h / 2);
+          await ctx.sleep(3.5);                    // just hovering, curious
+          actor.clearGaze();
+        }
+      },
+    },
+
+    // -------------------------------------------------- perch-on-tile
+    // Tiles are terrain: sit on a top edge for a while, glancing about.
+    // Sleepy enough with a quiet student -> nap on the ledge, and a nap on
+    // a ledge ends the only way comedy allows (droop -> fall -> startle).
+    {
+      id: 'perch-on-tile',
+      priority: 16,
+      cooldownSec: PERCH_COOLDOWN_SEC,
+      trigger: (state, event) => event.type === 'tick'
+        && state.mood.curious > PERCH_CURIOUS_GATE
+        && [...state.components.values()].some((c) => c.bounds),
+      async run(actor, state, ctx) {
+        const tiles = [...state.components.values()].filter((c) => c.bounds);
+        if (!tiles.length) return;
+        const c = ctx.pick(tiles);
+        await perchOn(actor, c.bounds, ctx, { t: 0.3 + Math.random() * 0.4 });
+        await ctx.sleep(PERCH_SIT_SEC * (0.6 + Math.random() * 0.4));
+        if (state.mood.sleepy > PERCH_NAP_SLEEPY_GATE && state.idleSeconds > 15) {
+          actor.setBase('sleep');                  // dozing on a ledge...
+          await ctx.sleep(4 + Math.random() * 4);
+          await fallFrom(actor, ctx);              // ...what could go wrong
+        } else {
+          actor.setBase('idle');
+          await actor.play('hop');                 // hop off, on to the next thing
+          const away = openWater(state);
+          await actor.moveTo(away.x, away.y);
+        }
+      },
+    },
+
+    // -------------------------------------------------- demo-peek-axis
+    // Force-fire only: the targetability proof. Aims the Kilroy at a
+    // graph's x-axis REGION (not the tile) — the wise-kitten phase will aim
+    // these primitives at menus, attribute headers, and axes exactly so.
+    {
+      id: 'demo-peek-axis',
+      priority: 1,
+      cooldownSec: 0,
+      trigger: () => false,
+      async run(actor, state, ctx) {
+        const g = [...state.components.values()].filter((k) => isGraph(k) && k.bounds).at(-1);
+        if (!g) { actor.emote('?'); return; }
+        const b = g.bounds;
+        const axisRect = {
+          x: b.x + PLOT_INSET.left,
+          y: b.y + b.h - PLOT_INSET.bottom,
+          w: b.w - PLOT_INSET.left - PLOT_INSET.right,
+          h: PLOT_INSET.bottom,
+        };
+        await kilroyOver(actor, axisRect, ctx, { t: 0.5, holdSec: 2.5 });
       },
     },
 

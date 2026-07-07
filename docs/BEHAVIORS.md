@@ -82,6 +82,22 @@ components expose `xLowerBound/xUpperBound/pointColor/pointSize/plotType`
 (bat-a-point needs no fallback); slider drags emit `component / change slider
 value` ops (mapped to `slider:change`).
 
+## Phase 6 — terrain (2026-07-07, selfTest 36/36)
+
+| id | Trigger | Gate / condition | Sequence | Cooldown | Priority | Clips |
+|---|---|---|---|---|---|---|
+| `peek-at-tile` | tick | curious > .55, tile exists | `ctx.pick` of Kilroy-over-the-top / side face-sliver (slow or medium emerge, never rapid) / curious hover; gaze into the tile; slip away | 180 s | 19 | kilroy |
+| `perch-on-tile` | tick | curious > .4, tile exists | sit on the top edge (`perch` loop), glance about; if sleepy > .35 and the student is quiet: nap on the ledge → droop → **fall** → startle → proud (< 2 s recovery) | 240 s | 16 | perch, droop, startle, proud |
+| `demo-peek-axis` | force-fire only | a graph exists | Kilroy aimed at the x-axis REGION (tile bounds + plot insets) — the targetability proof | — | 1 | kilroy |
+
+Terrain primitives (`web/src/terrain.js`) take **any** screen rect —
+`perchOn / peekSide / kilroyOver / fallFrom` — so the wise-kitten phase can
+aim them at menus, attribute headers, and axes. Occlusion is one clipping
+plane at the target edge (`clipAtScreenX/Y`, additive on Axolotl);
+`actor.stop()` and every primitive's `ctx.onCancel` clear it, and selfTest
+asserts cancel-clears-clipping. Verified live: perch ON a real tile,
+Kilroy rising from behind a real graph's axis region, nap-fall completed.
+
 ## Proposed (next candidates)
 
 All eight originally-proposed behaviors are now implemented (see above). Fresh

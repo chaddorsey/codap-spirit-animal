@@ -512,7 +512,17 @@ export class BehaviorEngine {
       this.remove('st-mood-gate');
       Object.assign(mood, savedMood);
 
-      // 7. ctx.pick respects weights
+      // 7. cancel clears terrain clipping (Phase 6)
+      if (this.actor.clipAtScreenY) {
+        this.actor.clipAtScreenY(120, { keepAbove: true });
+        this.forceFire('idle-companion');
+        this.cancelActive('selfTest');
+        const anyClipped = [...(this.actor._clipMats ?? [])]
+          .some((m) => m.clippingPlanes?.length);
+        check('cancel clears terrain clipping', !anyClipped);
+      }
+
+      // 8. ctx.pick respects weights
       const ctx = this._makeCtx({ cancelled: false, callbacks: [] }, {}, {});
       const picks = new Set(Array.from({ length: 20 }, () => ctx.pick(['a', 'b'], [1, 0])));
       check('ctx.pick honors zero weights', picks.size === 1 && picks.has('a'));

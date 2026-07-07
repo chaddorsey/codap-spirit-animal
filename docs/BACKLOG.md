@@ -19,6 +19,14 @@
   character.js turn 3/4 toward the target), scratch (chin), dance (loop),
   celebrate (full-V arms). 16 clips total.
 
+## Done (2026-07-07, Phase 6 — terrain)
+
+- **24 behaviors, selfTest 36/36.** Perch/peek/Kilroy terrain primitives
+  (`web/src/terrain.js`, targetable at ANY rect — axis regions proven live),
+  clipping-plane occlusion (`clipAtScreenX/Y`), perch+kilroy clips (29
+  total), peek-at-tile / perch-on-tile (nap→fall→startle comedy) /
+  demo-peek-axis. Work order: `docs/PHASE6.md`.
+
 ## Done (2026-07-07, Phase 5 — personality & kitten mischief)
 
 - **21 behaviors, selfTest 32/32.** Character bible (`docs/CHARACTER.md`,

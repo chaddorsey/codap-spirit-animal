@@ -51,18 +51,25 @@ phase). Insight detectors are OUT of scope. `docs/CHARACTER.md` is binding
 - Engine: NO changes expected. selfTest gains: clip plane set→cleared on
   cancel; peek primitive respects one-at-a-time (covered by force-fire).
 
-## Measurable end state
+## Measurable end state — ✅ COMPLETE 2026-07-07
 
-- [ ] Kilroy screenshot: only head + paws visible above a tile's top edge,
-      body convincingly hidden (dpr 2).
-- [ ] Side-peek screenshot: partial emergence from a vertical edge.
-- [ ] Perch verified against live CODAP: Dot sits ON a real tile's top edge.
-- [ ] Nap-fall sequence observed once: perch → sleep → droop → fall →
-      startle → recovered inside 2 s (screenshot mid-fall or at startle).
-- [ ] Cancel mid-peek leaves no residual clipping (selfTest assertion).
-- [ ] `demo-peek-axis` force-fired against a live graph's axis region.
-- [ ] selfTest green (grows with the new behaviors); BEHAVIORS.md, BACKLOG,
-      PLAN updated; milestone commits pushed.
+- [x] Kilroy: head + hooked paws above the tile's top edge, body hidden
+      (`docs/verification/phase6/terrain-kilroy.png`).
+- [x] Side-peek: partial emergence, body sliced at the vertical edge
+      (`terrain-peek-side.png`).
+- [x] Perch on live CODAP: Dot seated ON a real graph tile's title bar
+      (`terrain-perch-live.png`, `terrain-napfall-a.png`).
+- [x] Nap-fall observed: full sequence completed live (log:
+      perch-on-tile done); nap + mid-fall frames captured on the console
+      (`terrain-nap-on-perch.png`, `terrain-fall-startle.png` — the DOM
+      fake-tile partially occludes the drop there; the wrapper overlay is
+      topmost so the fall reads fully live).
+- [x] Cancel clears clipping — selfTest assertion (36/36).
+- [x] `demo-peek-axis` force-fired live: Kilroy rising from behind a real
+      graph's x-axis region (`terrain-demo-axis.png`) — targetability
+      proven on an arbitrary sub-tile rect.
+- [x] selfTest 36/36 (24 behaviors); BEHAVIORS.md, BACKLOG, PLAN updated;
+      milestone commits pushed.
 
 ## Milestones
 

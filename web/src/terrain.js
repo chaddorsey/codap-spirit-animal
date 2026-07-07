@@ -89,6 +89,7 @@ export async function fallFrom(actor, ctx) {
   await ctx.sleep(0.55);
   await actor.moveTo(here.x + 18, here.y + FALL_DISTANCE_PX,
     { pixelsPerSecond: FALL_SPEED_PX_S });        // the slip
-  await actor.play('startle');                    // wide awake now
+  actor.setBase('idle');                          // wide awake now
+  await actor.play('startle');
   await actor.play('proud');                      // ...meant to do that
 }

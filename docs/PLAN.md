@@ -17,6 +17,10 @@ plugins cannot render outside their tile; see README quirks for the evidence sum
   18 channel-disjoint clips); three.js character runtime with screen-space API;
   live CODAP v3 wrapper: iframe-phone bridge, semantic events, tile geometry with
   offset+scale calibration.
+- **Phase 6 done (2026-07-07):** terrain — perch/peek/Kilroy primitives
+  targetable at any screen rect (axis-region Kilroy proven live), clipping
+  occlusion, nap-on-ledge→fall comedy, 24 behaviors, selfTest 36/36.
+  Work order: `docs/PHASE6.md`.
 - **Phase 5 done (2026-07-07):** personality system — character bible
   (`docs/CHARACTER.md`), felt-only mood engine, 9 kitten squibs + 2 mischief
   acts (self-undoing REAL tile moves; point-batting via visual doubles from
