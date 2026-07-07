@@ -9,8 +9,10 @@ clip name) so the glTF exporter emits them as separate animations.
 LAYERING RULES (runtime depends on these -- keep them when adding clips):
 - body clips (idle, swim, hop, ...) never key eye bones
 - eye clips (blink) key ONLY eye bones
-- only hop/celebrate key root location/scale/rotation
+- only hop/celebrate/dance key root location/scale/rotation
 - every clip keys from a zeroed pose; loops end exactly at start values
+
+Arms have a wrist hinge: arm_L/arm_R (upper) + hand_L/hand_R (outer third).
 
 TO ADD A CLIP: write a pose function `def _my_clip(t, P)` where t is 0..1
 through the clip and P posts bone transforms, then register it in CLIPS
@@ -19,6 +21,7 @@ at the bottom. Re-run this script + 03_export_glb.py.
 import bpy
 import math
 import os
+from mathutils import Euler, Quaternion, Vector
 
 sin, cos, pi = math.sin, math.cos, math.pi
 FPS = 24
@@ -40,9 +43,23 @@ class Poser:
 
     def rot(self, bone, x=0.0, y=0.0, z=0.0):
         pb = rig.pose.bones[bone]
-        pb.rotation_mode = 'XYZ'
-        pb.rotation_euler = (x, y, z)
-        self.touched.setdefault(bone, set()).add("rotation_euler")
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = Euler((x, y, z), 'XYZ').to_quaternion()
+        self.touched.setdefault(bone, set()).add("rotation_quaternion")
+
+    def aim(self, bone, direction, blend=1.0):
+        """Rotate a bone so it points along `direction` in armature space
+        (+X = character front, +Y = character's left, +Z = up).
+        blend 0..1 slerps from rest toward the aim — use for ease-in/out.
+        Assumes ancestors are near rest; fine for limb gestures."""
+        pb = rig.pose.bones[bone]
+        pb.rotation_mode = 'QUATERNION'
+        rest3 = pb.bone.matrix_local.to_3x3()
+        y_rest = rest3 @ Vector((0, 1, 0))           # bone axis at rest
+        q = y_rest.rotation_difference(Vector(direction).normalized())
+        local = (rest3.inverted() @ q.to_matrix() @ rest3).to_quaternion()
+        pb.rotation_quaternion = Quaternion().slerp(local, max(0.0, min(1.0, blend)))
+        self.touched.setdefault(bone, set()).add("rotation_quaternion")
 
     def loc(self, bone, x=0.0, y=0.0, z=0.0):
         rig.pose.bones[bone].location = (x, y, z)
@@ -61,8 +78,8 @@ class Poser:
 
 def zero_pose():
     for pb in rig.pose.bones:
-        pb.rotation_mode = 'XYZ'
-        pb.rotation_euler = (0, 0, 0)
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = (1, 0, 0, 0)
         pb.location = (0, 0, 0)
         pb.scale = (1, 1, 1)
 
@@ -160,20 +177,77 @@ def _hop(t, P):
 
 def _wave(t, P):
     lift = min(1.0, t * 4, (1 - t) * 4)              # raise, hold, lower
-    P.rot("arm_R", x=D(-30 * lift), z=D(-70 * lift) + D(20 * lift) * sin(6 * pi * t))
+    sway = 0.35 * sin(6 * pi * t)
+    P.aim("arm_R", (0.25, -0.65 - sway, 0.72), blend=lift)   # up beside the head
+    P.aim("hand_R", (0.3, -0.2 - sway, 0.95), blend=lift)    # hand flaps along
     P.rot("head", y=D(-8 * lift))
     P.rot("chest", z=D(-4 * lift))
     gill_wave(P, t, D(5), 2)
 
 
-def _point(t, P):
-    # extend right arm forward and hold (runtime aims the whole body)
-    k = min(1.0, t * 3)
-    e = 1 - (1 - k) ** 3                             # ease-out
-    P.rot("arm_R", x=D(-55 * e), z=D(-25 * e))
-    P.rot("head", x=D(6 * e))
-    P.rot("chest", x=D(4 * e))
-    gill_wave(P, t, D(3), 1)
+# point/tap come in _L and _R variants: the runtime gestures with the
+# camera-near arm (far arm hides behind the body in profile)
+def _point_for(side):
+    s = 1 if side == "L" else -1
+    def fn(t, P):
+        k = min(1.0, t * 3)
+        e = 1 - (1 - k) ** 3                         # ease-out
+        P.aim(f"arm_{side}", (0.95, s * 0.30, 0.12), blend=e)   # straight ahead
+        P.aim(f"hand_{side}", (1.0, s * 0.25, 0.05), blend=e)   # finger on the line
+        P.rot("head", x=D(6 * e))
+        P.rot("chest", x=D(6 * e))
+        gill_wave(P, t, D(3), 1)
+    return fn
+
+
+def _tap_for(side):
+    s = 1 if side == "L" else -1
+    def fn(t, P):
+        # lean in, extend the arm, tap the "finger" twice on something ahead
+        reach = min(1.0, t * 3.5, (1 - t) * 3.5)
+        P.rot("chest", x=D(10 * reach))
+        P.rot("head", x=D(4 * reach))
+        P.aim(f"arm_{side}", (0.95, s * 0.20, -0.10), blend=reach)
+        taps = max(0.0, sin(4 * pi * min(max((t - 0.3) / 0.5, 0), 1)))
+        P.aim(f"hand_{side}", (0.75, s * 0.20, -0.65), blend=reach * taps)
+        gill_wave(P, t, D(4), 2)
+    return fn
+
+
+def _scratch(t, P):
+    # thinking: tilt head, bring hand up near the chin, scratch three times
+    k = min(1.0, t * 3, (1 - t) * 3)
+    P.rot("head", x=D(10 * k), z=D(-12 * k))
+    P.rot("chest", x=D(4 * k))
+    P.aim("arm_R", (0.60, -0.30, 0.74), blend=k)             # raise toward chin
+    scr = sin(6 * pi * min(max((t - 0.25) / 0.55, 0), 1))    # three strokes
+    P.aim("hand_R", (0.45, -0.15 + 0.12 * scr, 0.88), blend=k)
+    gill_wave(P, t, D(4), 1.5)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(4 * k) * sin(2 * pi * t - i * 0.5))
+
+
+def _dance(t, P):
+    # loopable bop: bounce, sway, alternating full-extension arm raises
+    w = 2 * pi * t                                    # one full sway per loop
+    bounce = abs(sin(2 * w))
+    P.loc("root", y=0.10 * bounce)
+    P.scale("root", 1 + 0.03 * bounce, 1 + 0.03 * bounce, 1 - 0.04 * bounce)
+    P.rot("root", y=D(14) * sin(w))
+    P.rot("spine", z=D(8) * sin(w))
+    P.rot("chest", z=D(-6) * sin(w))
+    P.rot("head", z=D(-8) * sin(w))
+    raise_l = 0.5 + 0.5 * sin(w)                     # alternate full raises
+    raise_r = 0.5 + 0.5 * sin(w + pi)
+    P.aim("arm_L", (0.20, 0.55, 0.81), blend=raise_l)
+    P.aim("arm_R", (0.20, -0.55, 0.81), blend=raise_r)
+    P.aim("hand_L", (0.3, 0.25, 0.92), blend=raise_l)
+    P.aim("hand_R", (0.3, -0.25, 0.92), blend=raise_r)
+    P.rot("leg_L", x=D(18) * sin(2 * w))
+    P.rot("leg_R", x=D(-18) * sin(2 * w))
+    gill_wave(P, t, D(10), 4)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(8) * sin(2 * w - i * 0.7))
 
 
 def _curious(t, P):
@@ -195,8 +269,11 @@ def _celebrate(t, P):
     P.rot("root", y=spin)
     h = abs(sin(2 * pi * t)) * (1 - t * 0.4)
     P.loc("root", y=0.35 * h)
-    P.rot("arm_L", z=D(60))
-    P.rot("arm_R", z=D(-60))
+    P.aim("arm_L", (0.10, 0.55, 0.83))               # arms fully up in a V
+    P.aim("arm_R", (0.10, -0.55, 0.83))
+    wig = 0.15 * sin(4 * pi * t)
+    P.aim("hand_L", (0.15, 0.30 + wig, 0.92))
+    P.aim("hand_R", (0.15, -0.30 + wig, 0.92))
     gill_wave(P, t, D(10), 4, sweep=D(-12))
     for i, name in enumerate(TAIL):
         P.rot(name, x=D(10) * sin(4 * pi * t - i * 0.8))
@@ -229,8 +306,13 @@ CLIPS = [
     ("blink",     0.35, _blink,    False),
     ("swim",      1.2, _swim,      True),
     ("hop",       0.9, _hop,       False),
-    ("wave",      1.4, _wave,      False),
-    ("point",     1.0, _point,     False),   # hold last frame at runtime
+    ("wave",      1.6, _wave,      False),
+    ("point_L",   1.0, _point_for("L"), False),   # hold last frame at runtime
+    ("point_R",   1.0, _point_for("R"), False),
+    ("tap_L",     1.4, _tap_for("L"),   False),
+    ("tap_R",     1.4, _tap_for("R"),   False),
+    ("scratch",   2.2, _scratch,   False),
+    ("dance",     2.4, _dance,     True),
     ("curious",   1.2, _curious,   False),
     ("nod",       0.9, _nod,       False),
     ("celebrate", 1.6, _celebrate, False),

@@ -24,7 +24,7 @@ for (const name of Object.keys(axo.actions)) {
   b.textContent = name;
   b.onclick = async () => {
     if (axo.meta[name]?.loop) { axo.setBase(name); note(`base loop: ${name}`); }
-    else if (name === 'point' || name === 'droop') {
+    else if (name.startsWith('point') || name === 'droop') {
       await axo.play(name, { hold: true });
       note(`${name} (holding — press "release")`);
     } else { note(`playing: ${name}`); await axo.play(name); note('idle'); }

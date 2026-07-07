@@ -121,12 +121,26 @@ def frond_bone(comp):
     return Vector(base), Vector(tip)
 
 
-def limb_bone(comp):
-    """Bone endpoints for a limb: innermost (body side) -> farthest tip."""
+def limb_ends(comp):
+    """(shoulder/hip anchor, tip) for a limb island.
+
+    The anchor is the TOP of the limb's inner (body-side) face — a true
+    shoulder/hip — so raising gestures swing the limb clear of the body
+    instead of pivoting at the armpit. Tip is the farthest vertex.
+    """
     vs = [me.vertices[i].co for i in comp]
-    inner = min(vs, key=lambda v: abs(v.y))
+    y_cut = sorted(abs(v.y) for v in vs)[max(1, len(vs) // 5)]
+    inner = max((v for v in vs if abs(v.y) <= y_cut), key=lambda v: v.z)
     tip = max(vs, key=lambda v: (v - inner).length)
     return Vector(inner), Vector(tip)
+
+
+def limb_bone(comp):
+    """Bone endpoints: pivot sunk 15% into the body so ~90 deg rotations
+    keep the limb root visually attached at the shoulder/hip."""
+    inner, tip = limb_ends(comp)
+    head = inner + (inner - tip) * 0.15
+    return head, tip
 
 
 # eye assemblies: group the 3 islands per side; center = largest island's centroid
@@ -152,6 +166,43 @@ for side, sign in (("L", 1), ("R", -1)):
             me.vertices[i].co += delta
     eye_centers[side] = c + delta
     print(f"eye_{side} leveled by ({delta.y:+.3f}, {delta.z:+.3f})")
+
+# reseat the glints (sub-pupils): from the straight-on overlay camera they sit
+# low and drift off the pupil. Pull each glint onto the eyeball sphere surface,
+# raised and front-facing, keeping its authored side (inner/outer) placement.
+for side, group in eye_groups.items():
+    islands = [(comp, centroid(me, comp)) for comp, _ in group]
+    eyeball = max(islands, key=lambda g: len(g[0]))
+    E = eyeball[1]
+    r = max((me.vertices[i].co - E).length for i in eyeball[0])
+    for comp, c in islands:
+        if comp is eyeball[0]:
+            continue
+        d = c - E
+        d.z += 0.20 * r                      # slight raise toward catchlight spot
+        lat = (d.y ** 2 + d.z ** 2) ** 0.5   # keep within the pupil disc face
+        max_lat = 0.52 * r
+        if lat > max_lat:
+            d.y *= max_lat / lat
+            d.z *= max_lat / lat
+        seat = 1.06 * r                      # just proud of the sphere, facing camera
+        d.x = max(seat ** 2 - d.y ** 2 - d.z ** 2, 0) ** 0.5
+        shift = (E + d) - c
+        for i in comp:
+            me.vertices[i].co += shift
+        print(f"glint {side} ({len(comp)}v) shifted ({shift.x:+.3f},{shift.y:+.3f},{shift.z:+.3f})")
+
+# lengthen arms and legs ~40% along the limb axis, anchored at the body end,
+# so gestures read clearly. Cross-section is untouched (still chubby/cute).
+LIMB_STRETCH = 1.4
+for comp, c in arm_parts + leg_parts:
+    inner, tip = limb_ends(comp)
+    axis = (tip - inner).normalized()
+    for i in comp:
+        v = me.vertices[i]
+        t = axis.dot(v.co - inner)
+        v.co += axis * (t * (LIMB_STRETCH - 1))
+print(f"limbs stretched x{LIMB_STRETCH} from shoulder/hip anchors")
 
 # gill fronds per side, sorted top-to-bottom
 gill_groups = {"L": [], "R": []}
@@ -207,11 +258,19 @@ for side in ("L", "R"):
     ec = eye_centers[side]
     add_bone(f"eye_{side}", ec, ec + Vector((0.15, 0, 0)), "head")
 
+arm_weight_specs = []  # (comp, arm_name, hand_name, inner, axis, length)
 for comp, c in arm_parts:
     side = "L" if c.y > 0 else "R"
     h, t = limb_bone(comp)
-    add_bone(f"arm_{side}", h, t, "chest")
-    island_to_bone[tuple(comp)] = f"arm_{side}"
+    # two-bone arm: upper arm + a "hand" hinge on the outer ~30% so the
+    # character can tap/flex a finger-equivalent
+    mid = h + (t - h) * 0.7
+    add_bone(f"arm_{side}", h, mid, "chest")
+    add_bone(f"hand_{side}", mid, t, f"arm_{side}", connect=True)
+    inner, tip = limb_ends(comp)
+    axis = (tip - inner).normalized()
+    arm_weight_specs.append(
+        (comp, f"arm_{side}", f"hand_{side}", inner, axis, (tip - inner).length, mid))
 for comp, c in leg_parts:
     side = "L" if c.y > 0 else "R"
     h, t = limb_bone(comp)
@@ -228,6 +287,17 @@ for b in arm_data.bones:
 # rigid islands
 for comp, bone_name in island_to_bone.items():
     groups[bone_name].add(list(comp), 1.0, 'REPLACE')
+
+# arms: blend arm -> hand along the limb axis around the hinge point
+for comp, arm_name, hand_name, inner, axis, length, mid in arm_weight_specs:
+    split = axis.dot(mid - inner) / length      # hinge as 0..1 along the limb
+    bw = 0.10
+    for i in comp:
+        t = axis.dot(me.vertices[i].co - inner) / length
+        k = min(1.0, max(0.0, (t - (split - bw)) / (2 * bw)))
+        k = k * k * (3 - 2 * k)
+        groups[arm_name].add([i], 1.0 - k, 'REPLACE')
+        groups[hand_name].add([i], k, 'REPLACE')
 
 # body: smooth blend along spine + tail chains keyed on z
 # joints: (z, bone_below, bone_above)

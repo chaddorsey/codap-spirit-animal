@@ -151,10 +151,19 @@ export class Axolotl {
       : (px > here.x ? Math.PI / 2 : -Math.PI / 2);
   }
 
-  /** Turn toward a screen point and point at it. Holds until release(). */
+  /** Turn toward a screen point and point at it. Holds until release().
+   *  Uses the camera-near arm and a 3/4 turn so the gesture stays visible. */
   async gestureAt(px, py) {
-    this.faceToward(px);
-    return this.play('point', { hold: true });
+    const right = px > this.getPosition().x;
+    this.targetFacing = (right ? 1 : -1) * Math.PI * 0.38;
+    return this.play(right ? 'point_L' : 'point_R', { hold: true });
+  }
+
+  /** Turn toward a screen point and tap the "finger" on it (one-shot). */
+  async tapAt(px, py) {
+    const right = px > this.getPosition().x;
+    this.targetFacing = (right ? 1 : -1) * Math.PI * 0.38;
+    return this.play(right ? 'tap_L' : 'tap_R');
   }
 
   // ------------------------------------------------------------ emotes

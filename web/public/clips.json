@@ -21,13 +21,38 @@
   },
   {
     "name": "wave",
+    "seconds": 1.6,
+    "loop": false
+  },
+  {
+    "name": "point_L",
+    "seconds": 1.0,
+    "loop": false
+  },
+  {
+    "name": "point_R",
+    "seconds": 1.0,
+    "loop": false
+  },
+  {
+    "name": "tap_L",
     "seconds": 1.4,
     "loop": false
   },
   {
-    "name": "point",
-    "seconds": 1.0,
+    "name": "tap_R",
+    "seconds": 1.4,
     "loop": false
+  },
+  {
+    "name": "scratch",
+    "seconds": 2.2,
+    "loop": false
+  },
+  {
+    "name": "dance",
+    "seconds": 2.4,
+    "loop": true
   },
   {
     "name": "curious",
