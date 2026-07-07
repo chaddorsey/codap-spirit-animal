@@ -666,8 +666,8 @@ def _sleep(t, P):
     P.rot("chest", x=D(6), z=0)
     P.scale("chest", 1 + 0.03 * breathe, 1 + 0.03 * breathe, 1 + 0.04 * breathe)
     gill_wave(P, t, D(2), 1, sweep=D(10))            # drooped
-    P.scale("eye_L", 1, 1, 0.45)                     # heavy-lidded, not shut
-    P.scale("eye_R", 1, 1, 0.45)
+    P.scale("eye_L", 1, 1, 0.10)                     # eyes closed
+    P.scale("eye_R", 1, 1, 0.10)
     for i, name in enumerate(TAIL):
         P.rot(name, x=D(2) * sin(2 * pi * t - i * 0.4))
 
