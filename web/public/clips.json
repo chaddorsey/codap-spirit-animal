@@ -65,6 +65,16 @@
     "loop": false
   },
   {
+    "name": "nod_L",
+    "seconds": 1.4,
+    "loop": false
+  },
+  {
+    "name": "nod_R",
+    "seconds": 1.4,
+    "loop": false
+  },
+  {
     "name": "celebrate",
     "seconds": 1.6,
     "loop": false

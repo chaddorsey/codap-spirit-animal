@@ -203,13 +203,15 @@ def _point_for(side):
 def _tap_for(side):
     s = 1 if side == "L" else -1
     def fn(t, P):
-        # lean in, extend the arm, tap the "finger" twice on something ahead
+        # raise the arm to ~90 deg from the body -- horizontal and straight out
+        # to the side so it reads clearly on the front camera -- hold it there,
+        # THEN flick the hand forward to tap twice
         reach = min(1.0, t * 3.5, (1 - t) * 3.5)
-        P.rot("chest", x=D(10 * reach))
+        P.rot("chest", x=D(8 * reach))
         P.rot("head", x=D(4 * reach))
-        P.aim(f"arm_{side}", (0.95, s * 0.20, -0.10), blend=reach)
-        taps = max(0.0, sin(4 * pi * min(max((t - 0.3) / 0.5, 0), 1)))
-        P.aim(f"hand_{side}", (0.75, s * 0.20, -0.65), blend=reach * taps)
+        P.aim(f"arm_{side}", (0.15, s * 0.98, 0.05), blend=reach)   # straight out, horizontal
+        taps = max(0.0, sin(4 * pi * min(max((t - 0.35) / 0.5, 0), 1)))
+        P.aim(f"hand_{side}", (0.70, s * 0.50, -0.45), blend=reach * taps)  # flick forward to tap
         gill_wave(P, t, D(4), 2)
     return fn
 
@@ -259,9 +261,24 @@ def _curious(t, P):
         P.rot(name, x=D(5 * k) * sin(2 * pi * t - i * 0.5))
 
 
+# head bone axes (verified in the runtime): local X = yaw ("no" turn),
+# local Y = pitch ("yes" nod, chin drops), local Z = roll (ear-to-shoulder tilt)
 def _nod(t, P):
-    P.rot("head", x=D(14) * sin(4 * pi * min(t, 0.9) / 0.9) * (1 - t * 0.3))
+    P.rot("head", y=D(14) * sin(4 * pi * min(t, 0.9) / 0.9) * (1 - t * 0.3))
     gill_wave(P, t, D(4), 2)
+
+
+# nod_L / nod_R: yaw the head ~30 deg to the side (local X), hold, then nod
+# "yes" (pitch about local Y) twice, then return to center
+def _nod_for(side):
+    s = 1 if side == "L" else -1
+    def fn(t, P):
+        turn = min(1.0, t * 4, (1 - t) * 4)          # turn in, hold, return
+        nod_env = min(max((t - 0.25) / 0.55, 0), 1)
+        nod = sin(4 * pi * nod_env)                  # two yes-nods
+        P.rot("head", x=D(s * 30) * turn, y=D(16) * nod)
+        gill_wave(P, t, D(4), 2)
+    return fn
 
 
 def _celebrate(t, P):
@@ -315,6 +332,8 @@ CLIPS = [
     ("dance",     2.4, _dance,     True),
     ("curious",   1.2, _curious,   False),
     ("nod",       0.9, _nod,       False),
+    ("nod_L",     1.4, _nod_for("L"), False),   # turn head left, then nod yes
+    ("nod_R",     1.4, _nod_for("R"), False),   # turn head right, then nod yes
     ("celebrate", 1.6, _celebrate, False),
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
