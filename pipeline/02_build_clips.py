@@ -384,21 +384,23 @@ def _tinkerbell(t, P):
     roll = 0.0                                # lean, radians; + = lean left
     # three equal beats: PREP [0, 1/3) -- CIRCLE [1/3, 2/3) -- SETTLE [2/3, 1]
     T1, T2 = 0.3474, 0.5906   # circle 1.07s; swoop 0.70s
-    if t < 0.0740:                              # prep: dip to load the takeoff
-        k = t / 0.0740
+    if t < 0.0740:                            # prep: dip + cartoony SCRUNCH,
+        k = t / 0.0740                        # held compressed at the bottom
         y = -0.30 * _smooth(k)
-        b = sin(pi * k)
-        P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
-    elif t < 0.2324:                            # prep: SWOOP up onto the shelf —
-        e = _smooth((t - 0.0740) / 0.1584)        # out to the right, then arcing
-        b1 = (0.55, 0.55)                     # up-left; bezier control point
-        u = 1 - e
-        x = 2 * u * e * b1[0] + e * e * _TK_P2[0]
-        y = u * u * -0.30 + 2 * u * e * b1[1] + e * e * _TK_P2[1]
-        tx = 2 * u * b1[0] + 2 * e * (_TK_P2[0] - b1[0])
-        ty = 2 * u * (b1[1] + 0.30) + 2 * e * (_TK_P2[1] - b1[1])
-        lean = math.atan2(-tx, ty)            # lean into the travel direction,
-        roll = lean * 0.45 * (4 * e * u) + _TK_ANG * e   # no tilt at launch/landing
+        b = _smooth(k)
+        P.scale("root", 1 + 0.10 * b, 1 + 0.10 * b, 1 - 0.16 * b)
+    elif t < 0.2324:                          # prep: SPRING straight up the
+        k = (t - 0.0740) / 0.1584             # angled line to the shelf
+        e = 1 - (1 - k) ** 2.5                # explosive start, soft arrival
+        x = _TK_P2[0] * e
+        y = -0.30 + (_TK_P2[1] + 0.30) * e
+        roll = _TK_ANG * e                    # lean matches the travel line
+        if k < 0.06:                          # scrunch pops into launch stretch
+            st = 0.84 + (1.20 - 0.84) * (k / 0.06)
+        else:                                 # stretch relaxes by mid-flight
+            st = 1 + 0.20 * max(0.0, 1 - (k - 0.06) / 0.38)
+        sxy = 1 / st ** 0.5
+        P.scale("root", sxy, sxy, st)
     elif t < 0.3063:                            # prep: settle onto the padded shelf
         k = (t - 0.2324) / 0.0739        # one slight settle, no bounce
         x, y = _TK_P2
