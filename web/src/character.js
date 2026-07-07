@@ -15,9 +15,12 @@ const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
  */
 export class Axolotl {
   static async load(stage, { url = '/axolotl.glb', clipsUrl = '/clips.json' } = {}) {
+    // cache-bust: stale cached glbs after asset rebuilds have repeatedly
+    // masqueraded as animation bugs
+    const v = `?v=${Date.now()}`;
     const [gltf, clipMeta] = await Promise.all([
-      new GLTFLoader().loadAsync(url),
-      fetch(clipsUrl).then(r => r.json()),
+      new GLTFLoader().loadAsync(url + v),
+      fetch(clipsUrl + v).then(r => r.json()),
     ]);
     return new Axolotl(stage, gltf, clipMeta);
   }
