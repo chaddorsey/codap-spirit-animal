@@ -12,9 +12,13 @@
  * distractingly rapid; setbacks (the ledge fall) recover inside 2 s.
  */
 
-const PERCH_CENTER_ABOVE_EDGE_PX = 44;  // sitting pose: center above ledge
+const PERCH_CENTER_ABOVE_EDGE_PX = 12;  // seated belly rests ON the ledge
+                                        // (the pose tucks legs up, so the
+                                        // visual bottom sits well above the
+                                        // bind-pose bbox; tail drapes over)
 const PEEK_SPEEDS = { slow: 45, medium: 95 };   // px/s emergence
-const KILROY_EYES_ABOVE_EDGE_PX = 44;   // head + hooked paws crest the wall
+const KILROY_CENTER_AT_EDGE_PX = 0;     // center AT the edge: head + hooked
+                                        // paws crest it, body hidden below
 const HIDE_DEPTH_PX = 60;               // how far "behind the wall" Dot ducks
 const FALL_DISTANCE_PX = 150;
 const FALL_SPEED_PX_S = 1100;
@@ -70,7 +74,7 @@ export async function kilroyOver(actor, rect, ctx, { t = 0.5, holdSec = 2.5 } = 
   await ctx.sleep(0.6);                           // the wall is suspiciously quiet
   // rise: eyes and paws over the edge
   actor.play('kilroy', { hold: true });
-  await actor.moveTo(px, edgeY + PERCH_CENTER_ABOVE_EDGE_PX - KILROY_EYES_ABOVE_EDGE_PX,
+  await actor.moveTo(px, edgeY + KILROY_CENTER_AT_EDGE_PX,
     { pixelsPerSecond: PEEK_SPEEDS.slow });
   actor.lookAt(rect.x + rect.w / 2, rect.y + rect.h / 2);
   await ctx.sleep(holdSec);                       // just... watching

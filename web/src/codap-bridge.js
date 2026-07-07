@@ -28,9 +28,12 @@ export class CodapBridge extends EventTarget {
     // doc -> screen mapping: screen = offset + scale * doc. CODAP v3 can
     // render its workspace scaled down at smaller viewports, so scale is
     // calibratable too. Persisted across reloads.
+    // y = menu bar + tool shelf + (while shown) the welcome announcement
+    // banner. Measured against v3.0.3 with the banner visible: {0, 167};
+    // banner dismissed it is ~44px less — the panel arrows adjust.
     this.calibration = JSON.parse(
       localStorage.getItem('spirit-animal-calibration') ?? 'null',
-    ) ?? { x: 0, y: 98, scale: 1 };
+    ) ?? { x: 0, y: 167, scale: 1 };
     const origin = new URL(iframeEl.src).origin;
     this.phone = new iframePhone.IframePhoneRpcEndpoint(
       (msg, callback) => { this._onMessage(msg); callback?.({ success: true }); },
