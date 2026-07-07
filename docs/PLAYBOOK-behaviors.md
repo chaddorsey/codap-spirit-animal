@@ -34,20 +34,31 @@ Never touch: `behavior-engine.js` (if you think you need to, stop and ask),
   },
   onCancel(actor, state) {},         // optional extra cleanup after actor.stop()
   ignoreActivity: true,              // optional, RARE: behavior accompanies
-                                     // continuous student action (drag-follow)
-                                     // and self-terminates; normal behaviors
-                                     // omit this and get cancel-on-action
+                                     // continuous student action (drag-follow,
+                                     // mischief acts whose own DI calls echo
+                                     // back) and self-terminates; normal
+                                     // behaviors omit this
+  preempts: true,                    // optional, RARER: may displace a running
+                                     // lower-priority intervention (startle)
 }
 ```
 
 - `state`: `components` Map (`{id, type, title, bounds, createdAt, attrsAssigned,
-  preexisting}`), `selection`, `drag`, `idleSeconds`, `active`.
-- `actor`: the Axolotl API — `moveTo(x,y)` `lookAt(x,y)` `gestureAt(x,y)`
-  `tapAt(x,y)` `play(name)` `setBase(name)` `emote('?'|'!'|'?!')` `release()`
-  `clearGaze()` `stop()`. All screen pixels. Every call throws once the
-  intervention is cancelled — just let it propagate; the engine catches it.
-- `ctx`: `{ event, mem, sleep(sec), untilCancelled(), waitFor(fn, {timeoutSec}), engine }`.
-  `mem` is your per-behavior scratch (e.g. `mem.done` for once-per-session).
+  lastInteractionAt, preexisting}`), `dataContexts` Map, `componentChurn` /
+  `componentDeletes` (timestamp history — count events HERE, not in `mem`:
+  trigger-side counters miss events consumed by higher-priority firings),
+  `selection`, `drag`, `idleSeconds`, `active`, `mood` (playful/curious/
+  sleepy/mischievous 0–1; gate squibs on it, discharge mischief by zeroing it).
+- `actor`: the Axolotl API — `moveTo(x,y,{pixelsPerSecond})` `lookAt(x,y)`
+  `gestureAt(x,y)` `tapAt(x,y)` `play(name)` `setBase(name)`
+  `emote('?'|'!'|'?!')` `release()` `clearGaze()` `stop()`
+  `spawnDot(x,y,{color,radius})` (visual point double → batTo/springBack/
+  remove). All screen pixels. Every call throws once the intervention is
+  cancelled — just let it propagate; the engine catches it.
+- `ctx`: `{ event, mem, sleep(sec), untilCancelled(), waitFor(fn, {timeoutSec}),
+  pick(options, weights?), onCancel(fn), engine }`. `mem` is per-behavior
+  scratch (e.g. `mem.done`); `pick` for mood-weighted performance variants;
+  `onCancel` for cleanup of resources like spawned dots.
 
 ## Rules that bite
 

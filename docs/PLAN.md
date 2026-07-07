@@ -17,6 +17,12 @@ plugins cannot render outside their tile; see README quirks for the evidence sum
   18 channel-disjoint clips); three.js character runtime with screen-space API;
   live CODAP v3 wrapper: iframe-phone bridge, semantic events, tile geometry with
   offset+scale calibration.
+- **Phase 5 done (2026-07-07):** personality system — character bible
+  (`docs/CHARACTER.md`), felt-only mood engine, 9 kitten squibs + 2 mischief
+  acts (self-undoing REAL tile moves; point-batting via visual doubles from
+  v3 axis bounds), reaction variety, 8 new clips (27 total), 21 behaviors,
+  selfTest 32/32. Work order: `docs/PHASE5.md`. Open: Chad reviews/names
+  the character in CHARACTER.md.
 - **Phase 4 done (2026-07-06):** data-driven behavior engine
   (`web/src/behavior-engine.js` + `behaviors.js`) replaced the switchboard —
   arbitration, cooldowns, subtle→overt escalation, cancel-on-student-action.

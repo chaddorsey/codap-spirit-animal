@@ -64,6 +64,22 @@ const STARTLE_COOLDOWN_SEC = 60;
 const SIT_NEARBY_COOLDOWN_SEC = 300;
 const SIT_NEARBY_PLAYFUL_GATE = 0.5;  // affection follows shared energy
 const SIT_NEARBY_DURATION_SEC = 10;
+const MISCHIEF_GATE = 0.6;            // both mischief acts need this much
+const TILE_MISCHIEF_COOLDOWN_SEC = 300;
+const TILE_MISCHIEF_NUDGE_PX = 12;    // real DI move, always undone
+const TILE_UNTOUCHED_SEC = 20;        // never mess with what's in use
+const BAT_POINT_COOLDOWN_SEC = 240;
+// CODAP v3 graph plot-area insets (tile bounds -> plot rect), tuned visually
+const PLOT_INSET = { left: 42, right: 10, top: 34, bottom: 46 };
+
+/** Map a data value onto the plot's x pixel range using the graph's axis
+ *  bounds (v3 exposes xLowerBound/xUpperBound on the component). */
+const plotX = (bounds, props, value) => {
+  const x0 = bounds.x + PLOT_INSET.left;
+  const w = bounds.w - PLOT_INSET.left - PLOT_INSET.right;
+  const f = (value - props.xLowerBound) / (props.xUpperBound - props.xLowerBound);
+  return x0 + Math.max(0, Math.min(1, f)) * w;
+};
 
 /** A random screen point not inside any known tile (kitten open water). */
 const openWater = (state) => {
@@ -422,6 +438,110 @@ export function makeBehaviors() {
         state.componentChurn.length = 0;   // consume the burst
         actor.emote('?');
         await actor.play('scratch');
+      },
+    },
+
+    // -------------------------------------------------- tile-mischief
+    // Unspent energy discharges innocuously: bat a tile a few pixels (a
+    // REAL DI move), swoop around to the other side, bat it back. Always
+    // self-undoing; never touches a tile the student used recently.
+    // ignoreActivity: its own DI moves echo back as notifications.
+    {
+      id: 'tile-mischief',
+      priority: 14,
+      cooldownSec: TILE_MISCHIEF_COOLDOWN_SEC,
+      ignoreActivity: true,
+      _target(state) {
+        return [...state.components.values()].find((c) => c.bounds
+          && (!c.lastInteractionAt || now() - c.lastInteractionAt > TILE_UNTOUCHED_SEC));
+      },
+      trigger(state, event) {
+        return event.type === 'tick'
+          && state.mood.mischievous > MISCHIEF_GATE
+          && state.idleSeconds < NUDGE_STUDENT_ACTIVE_SEC
+          && !!this._target(state);
+      },
+      async run(actor, state, ctx) {
+        const c = this._target(state);
+        if (!c) return;
+        state.mood.mischievous = 0;                  // energy discharged
+        const bridge = ctx.engine.bridge;
+        const cur = await bridge.request('get', `component[${c.id}]`);
+        const pos = cur?.values?.position;
+        if (!pos) return;
+        const { x, y, w, h } = c.bounds;
+        // bat it right...
+        await actor.moveTo(x - 40, y + h / 2, { pixelsPerSecond: 500 });
+        const bat1 = actor.play('bat_L');
+        await ctx.sleep(0.45);                       // paw connects mid-swipe
+        await bridge.request('update', `component[${c.id}]`,
+          { position: { left: (pos.left ?? 0) + TILE_MISCHIEF_NUDGE_PX, top: pos.top ?? 0 } });
+        await bat1;
+        // ...swoop around to the far side...
+        await actor.moveTo(x + w + 55, y - 40, { pixelsPerSecond: 600 });
+        await actor.moveTo(x + w + 40, y + h / 2, { pixelsPerSecond: 600 });
+        // ...and bat it back exactly where it was
+        const bat2 = actor.play('bat_R');
+        await ctx.sleep(0.45);
+        await bridge.request('update', `component[${c.id}]`,
+          { position: { left: pos.left ?? 0, top: pos.top ?? 0 } });
+        await bat2;
+        // exit fast + the proud beat (timing rules 3 and 5)
+        const away = openWater(state);
+        await actor.moveTo(away.x, away.y, { pixelsPerSecond: 650 });
+        await actor.play('proud');
+      },
+    },
+
+    // -------------------------------------------------- bat-a-point
+    // Bats one plotted point: a visual double spawns exactly over the real
+    // dot (position computed from the graph's axis bounds), gets swatted in
+    // an arc, springs back, lands, gone. The data never changes. Kittens
+    // pick the outlier — the dot sitting apart from its herd.
+    {
+      id: 'bat-a-point',
+      priority: 13,
+      cooldownSec: BAT_POINT_COOLDOWN_SEC,
+      ignoreActivity: true,
+      trigger: (state, event) => event.type === 'tick'
+        && state.mood.mischievous > MISCHIEF_GATE
+        && [...state.components.values()].some((c) =>
+          isGraph(c) && c.bounds && (c.attrsAssigned ?? 0) > 0),
+      async run(actor, state, ctx) {
+        const c = [...state.components.values()].filter((k) =>
+          isGraph(k) && k.bounds && (k.attrsAssigned ?? 0) > 0).at(-1);
+        if (!c) return;
+        const bridge = ctx.engine.bridge;
+        const props = (await bridge.request('get', `component[${c.id}]`))?.values;
+        if (!props?.xAttributeName || props.xUpperBound == null) return;
+        // fetch the x values and pick the outlier (farthest from the mean)
+        const items = (await bridge.request('get',
+          `dataContext[${props.dataContext}].itemSearch[*]`))?.values ?? [];
+        const vals = items.map((it) => Number(it.values?.[props.xAttributeName]))
+          .filter((v) => Number.isFinite(v));
+        if (!vals.length) return;
+        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const value = vals.reduce((a, b) => Math.abs(b - mean) > Math.abs(a - mean) ? b : a);
+        state.mood.mischievous = 0;                  // energy discharged
+        const sx = plotX(c.bounds, props, value);
+        // dot plot: points rest just above the bottom axis
+        const sy = c.bounds.y + c.bounds.h - PLOT_INSET.bottom - 8;
+        const radius = 6 + 2 * (props.pointSize ?? 1);
+        await actor.moveTo(sx + 70, sy - 20, { pixelsPerSecond: 500 });
+        actor.lookAt(sx, sy);
+        await ctx.sleep(POUNCE_STALK_SEC);           // stillness before the bat
+        const dot = actor.spawnDot(sx, sy, { color: props.pointColor, radius });
+        ctx.onCancel(() => dot.remove());            // never leak the double
+        const bat = actor.play('bat_R');
+        await ctx.sleep(0.4);                        // paw connects
+        await dot.batTo(-60, -20);
+        await dot.springBack();
+        dot.remove();
+        await bat;
+        actor.clearGaze();
+        const away = openWater(state);
+        await actor.moveTo(away.x, away.y, { pixelsPerSecond: 650 });
+        await actor.play('proud');
       },
     },
 

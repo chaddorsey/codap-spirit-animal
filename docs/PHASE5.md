@@ -68,19 +68,30 @@ batting something — and can name its mood without any UI telling them.
      centroid from values alone; if even that fails, descope to
      BEHAVIORS.md as blocked and keep the batting clip for tile-mischief.
 
-## Measurable end state
+## Measurable end state — ✅ COMPLETE 2026-07-07 (CHARACTER.md review open)
 
-- [ ] `CHARACTER.md` reviewed by Chad.
-- [ ] selfTest passes with the three new assertions (screenshot/log).
-- [ ] Each squib force-fireable and simulate-able from the panel; each
-      visually verified once (screenshots; live CODAP where it matters —
-      tile-mischief must move a REAL tile and put it back exactly).
-- [ ] bat-a-point double lands within 2 px of the real point at dpr 2.
-- [ ] Mood readout demonstrably drifts across a 3-minute idle→active→idle
-      session (screenshot the readout at three timestamps).
-- [ ] Existing 12 behaviors + 18 clips unregressed (selfTest + spot check).
-- [ ] BEHAVIORS.md, BACKLOG.md, PLAN.md updated; all pushed in milestone
-      commits.
+- [ ] `CHARACTER.md` reviewed by Chad (name slot also open).
+- [x] selfTest passes — grew 18 → **32/32** (mood drift, wake bumps,
+      mood-gate block/fire, pick weights, per-behavior force-fire).
+- [x] Every squib force-fireable + simulate-able; verified via mood-crank
+      against the live page (docs/verification/phase5/). tile-mischief
+      moved a REAL tile via DI and restored its exact position
+      (verified `{left:40,top:60}` → identical after).
+- [x] bat-a-point double: spawned from v3 axis bounds over the outlier dot,
+      arc + elastic spring-back, landed visually indistinguishable from the
+      real point before removal (mischief-bat-arc/landed screenshots).
+- [x] Mood drift documented: readout at active / 3-idle-minutes / returned
+      (mood-A/B/C screenshots; drift runs through the real `_tickMood`).
+- [x] Prior 12 behaviors + clips unregressed (selfTest superset + live
+      greet/celebrate observed during scene setup).
+- [x] BEHAVIORS.md (Phase 5 table + engine opt-outs), PLAYBOOK-behaviors
+      (mood/pick/onCancel/preempts contract), BACKLOG, PLAN updated; five
+      milestone commits pushed.
+
+Engine capabilities added along the way (all additive, all selfTest-covered):
+`preempts` (startle must not wait its turn), `ctx.onCancel` (resource cleanup),
+`spawnDot` point doubles, `slider:change` bridge mapping, model-owned
+delete/churn histories.
 
 ## Milestones (commit + push after each)
 

@@ -19,6 +19,19 @@
   character.js turn 3/4 toward the target), scratch (chin), dance (loop),
   celebrate (full-V arms). 16 clips total.
 
+## Done (2026-07-07, Phase 5 — personality & kitten mischief)
+
+- **21 behaviors, selfTest 32/32.** Character bible (`docs/CHARACTER.md`,
+  name TBD by Chad); felt-only mood engine (playful/curious/sleepy/
+  mischievous, drift + event bumps, speed influence); 9 ambient squibs incl.
+  zoomies, pounce-at-drag, startle (new `preempts` engine capability),
+  absorbed-discovery, sit-nearby, roll-over; reaction variety via
+  mood-weighted `ctx.pick` (greet ×3, celebrate ×2, wake ×2); 8 new clips
+  (27 total). Mischief: tile-mischief (REAL self-undoing DI tile moves,
+  verified position-restored) and bat-a-point (visual double over the
+  outlier computed from v3 axis bounds — spike found v3 exposes
+  xLower/UpperBound, no fallback needed). Work order: `docs/PHASE5.md`.
+
 ## Done (2026-07-07, post-Phase-4)
 
 - All 8 originally-proposed behaviors implemented — **12 behaviors total**,

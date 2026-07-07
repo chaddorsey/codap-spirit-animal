@@ -9,7 +9,15 @@ this table is the design source for extending them. To add one, follow
 one intervention at a time · higher priority wins ties · cooldown blocks refires ·
 escalation variant fires only after `after` subtle firings went un-acted-on ·
 any fresh student action cancels an in-flight intervention within ~1s and the
-character returns to idle · the overlay never intercepts input.
+character returns to idle · the overlay never intercepts input. Two opt-outs:
+`ignoreActivity` (behavior accompanies continuous student action and
+self-terminates) and `preempts` (a strictly-higher-priority behavior may
+displace a running one — startle only).
+
+**Mood** (Phase 5): `state.mood` = playful/curious/sleepy/mischievous 0–1,
+drifting per `docs/CHARACTER.md`; squib triggers gate on it, `ctx.pick`
+weights performance variants by it, and it scales swim speed (felt only —
+no student-facing UI).
 
 ## Implemented (Phase 4 — all live-verified against CODAP v3.0.3, 2026-07-06)
 
@@ -53,6 +61,26 @@ Notes:
 - `attrsAssigned` counts `attributeChange` notifications per component — it is
   an event count, not axis state; removal of an attribute also increments it.
   Good enough for "has the student ever touched this graph's axes."
+
+## Phase 5 — personality squibs & mischief (2026-07-07, selfTest 32/32)
+
+| id | Trigger | Gate / condition | Sequence | Cooldown | Priority | Clips |
+|---|---|---|---|---|---|---|
+| `startle` ᵖ | `component:delete` | 2+ deletes in 4 s | jump-back pop + "where did it go?" head-tilt; recovers < 2 s | 60 s | 65 | startle, head_tilt |
+| `pounce-at-drag` ⁱ | `slider:change` | playful > .55 | stalk-freeze 0.8 s → fast approach → pounce (overshoot+recover) → proud | 90 s | 28 | pounce, proud |
+| `absorbed-discovery` | tick | curious > .6, populated graph | nose-close hover, utterly still 4.5 s, drifts off | 180 s | 18 | — |
+| `head-tilt-investigate` | tick | curious > .5 | visits a (preferably new) tile, considers it from two angles | 150 s | 17 | head_tilt |
+| `zoomies` | tick | playful > .7 | 4 laps of open canvas at 950 px/s, abrupt hop stop; spends energy | 240 s | 15 | — |
+| `tile-mischief` ⁱ | tick | mischievous > .6, student around, tile untouched 20 s | bat tile (+12 px REAL DI move) → swoop around → bat it back → exit fast, proud. Self-undoing; verified position-restored live | 300 s | 14 | bat_L/R, proud |
+| `bat-a-point` ⁱ | tick | mischievous > .6, populated graph | stalk → spawn visual double exactly over the outlier dot (position from v3 `xLower/UpperBound`) → paw-arc it away → elastic spring-back onto the real dot → remove → exit, proud. Data never changes | 240 s | 13 | bat_R, proud |
+| `sit-nearby` | tick | playful > .5, student around | settles low beside the most-used tile for 10 s; any action releases it | 300 s | 12 | — |
+| `roll-over` | tick | playful > .8 | barrel roll in open water + proud | 600 s | 8 | roll, proud |
+
+ᵖ = `preempts` · ⁱ = `ignoreActivity`. Wake-path stretch (`stretch` clip) ships
+as an idle-companion wake variant, not its own row. v3 findings: graph
+components expose `xLowerBound/xUpperBound/pointColor/pointSize/plotType`
+(bat-a-point needs no fallback); slider drags emit `component / change slider
+value` ops (mapped to `slider:change`).
 
 ## Proposed (next candidates)
 

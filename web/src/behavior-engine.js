@@ -343,7 +343,8 @@ export class BehaviorEngine {
       }
       return options[options.length - 1];
     };
-    return { event, mem, sleep, untilCancelled, waitFor, pick, engine: this };
+    return { event, mem, sleep, untilCancelled, waitFor, pick, onCancel,
+      engine: this };
   }
 
   /** Unregister a behavior (debug/selfTest hygiene). */

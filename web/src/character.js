@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EmoteBubble, ZzzPuffs } from './emotes.js';
+import { PointDouble } from './props.js';
 
 const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
 
@@ -199,6 +200,10 @@ export class Axolotl {
     this.targetFacing = (right ? 1 : -1) * Math.PI * 0.38;
     return this.play(right ? 'tap_L' : 'tap_R');
   }
+
+  /** Spawn a visual double of a plotted point at screen (px,py) — see
+   *  props.js. (Additive, Phase 5 — bat-a-point mischief.) */
+  spawnDot(px, py, opts) { return new PointDouble(this.stage, px, py, opts); }
 
   // ------------------------------------------------------------ emotes
   /** Show '?', '!', or '?!' bobbing above the head. duration 0 = sticky. */
