@@ -67,19 +67,23 @@ Extend the `/codap.html` panel with a "behaviors" section:
   assert one-at-a-time, assert cooldown blocks a refire, assert cancel-on-activity;
   resolves with a pass/fail summary object. This is the phase's smoke test.
 
-## Measurable end state (all must hold)
+## Measurable end state (all must hold) — ✅ COMPLETE 2026-07-06
 
-- [ ] `selfTest()` passes in the browser (screenshot or logged result).
-- [ ] Each of the four behaviors visually verified against **live** CODAP once
-      (screenshot each; the debug panel makes setup fast).
-- [ ] Force-firing behavior A while B runs: B completes or cancels cleanly, never
-      two interventions animating at once.
-- [ ] A student click inside CODAP during `nudge-empty-graph` cancels it within ~1s.
-- [ ] `docs/BEHAVIORS.md`: spec table of the 4 implemented + ≥6 proposed behaviors
-      (trigger, condition, sequence, cooldown, escalation, priority, needed clips).
-- [ ] `docs/PLAYBOOK-behaviors.md` and `docs/PLAYBOOK-clips.md`: recipe format —
-      files to touch, exact commands, verification steps, common failure modes.
-- [ ] BACKLOG.md and PLAN.md updated; everything committed and pushed.
+- [x] `selfTest()` passes in the browser — 10/10 PASS
+      (`docs/verification/phase4/selftest-pass-final.png`).
+- [x] Each of the four behaviors visually verified against **live** CODAP once —
+      screenshots in `docs/verification/phase4/` (greet, celebrate ×2, nudge
+      subtle + ESCALATED, idle sleep + wake).
+- [x] Force-firing behavior A while B runs: B cancels cleanly, exactly one
+      active (selfTest assertions 5–6; also exercised live).
+- [x] A student action inside CODAP during `nudge-empty-graph` cancels it within
+      ~1s — live-measured 109 ms via slider drag (`behavior-cancel-on-action.png`).
+      Note: only actions that produce CODAP notifications count; clicks on dead
+      space are invisible to the Data Interactive API.
+- [x] `docs/BEHAVIORS.md`: 4 implemented + 8 proposed, full spec columns.
+- [x] `docs/PLAYBOOK-behaviors.md` and `docs/PLAYBOOK-clips.md` written
+      (files to touch, exact commands, verification steps, failure-mode tables).
+- [x] BACKLOG.md and PLAN.md updated; everything committed and pushed.
 
 ## Bail-out criteria (stop digging when hit)
 

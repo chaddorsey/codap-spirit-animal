@@ -13,11 +13,16 @@ plugins cannot render outside their tile; see README quirks for the evidence sum
 
 ## State (verified working as of 2026-07-06)
 
-- **Phases 0–3 complete.** Blender pipeline → `web/public/axolotl.glb` (21-bone rig,
-  11 channel-disjoint clips); three.js character runtime with screen-space API;
+- **Phases 0–4 complete.** Blender pipeline → `web/public/axolotl.glb` (21-bone rig,
+  18 channel-disjoint clips); three.js character runtime with screen-space API;
   live CODAP v3 wrapper: iframe-phone bridge, semantic events, tile geometry with
-  offset+scale calibration, spike behaviors (greet new component, ? on selection,
-  gaze follows attribute drags, celebrate on drop, sleep when idle).
+  offset+scale calibration.
+- **Phase 4 done (2026-07-06):** data-driven behavior engine
+  (`web/src/behavior-engine.js` + `behaviors.js`) replaced the switchboard —
+  arbitration, cooldowns, subtle→overt escalation, cancel-on-student-action.
+  Four seed behaviors live-verified (greet, celebrate-first-plot, nudge-empty-graph
+  incl. escalation, idle-companion); `__engine.selfTest()` 10/10; debug harness in
+  `/codap.html`. Evidence: `docs/verification/phase4/`. Spec: `docs/BEHAVIORS.md`.
 - Test console: `web/` → `/` (character) and `/codap.html` (live CODAP wrapper).
 - Everything is scripted/reproducible; no manual Blender edits anywhere.
 
@@ -35,29 +40,16 @@ the glb is committed.
 
 ## Work queue, in order
 
-1. **Eye glint fix** (BACKLOG #1) — small, do first. Rebuild + verify with a zoomed
-   screenshot at rest and mid-gaze.
-2. **Limb extension + new clips** (BACKLOG #2, #3) — pipeline geometry change, then
-   clip work. Verify every clip visually in the console before moving on.
-3. **Emote glyph gap** (BACKLOG #4) — quick, isolated in `web/src/emotes.js`.
-4. **Phase 4: behavior engine** — **full work order with acceptance criteria,
-   bail-outs, and scope boundaries lives in `docs/PHASE4.md` — follow that file.**
-   Design intent summary:
-   - A small engine consuming `CodapBridge` semantic events plus timers, replacing the
-     switchboard in `codap-main.js`. State: what the student has/hasn't done recently
-     (per-component visit history, idle time, event counts).
-   - Behaviors as data: trigger condition → intervention sequence (moveTo/gesture/
-     emote/clip), with **priority**, **cooldown** (anti-annoyance: don't fire the same
-     nudge twice in N minutes; never interrupt an active student mid-flow), and
-     **escalation** (subtle first — glance, ?; overt later — swim over, tap, !).
-   - Exemplar behaviors to implement first: (a) empty graph sitting unused → swim
-     over, peer, tap it, ? ; (b) student makes first scatterplot with both axes →
-     celebrate; (c) long idle with data present but no graph → swim to toolbar area,
-     point at Graph button; (d) selection made → curious glance (already spiked).
-   - Write `docs/BEHAVIORS.md` as a spec table others (and cheaper models) can extend.
-5. **Playbooks** — `docs/PLAYBOOK-clips.md` and `docs/PLAYBOOK-behaviors.md`: exact
-   recipe (files to touch, commands, how to verify) so less-capable agents can add
-   clips/behaviors safely. Mine `02_build_clips.py`'s header comments as the seed.
+1. **Emote glyph gap** (BACKLOG #1) — quick, isolated in `web/src/emotes.js`.
+2. **Proposed behaviors** (BACKLOG #0) — extend `web/src/behaviors.js` per
+   `docs/BEHAVIORS.md` + `docs/PLAYBOOK-behaviors.md`. One entry each; the
+   engine and clips are done. `glance-at-selection` and `follow-attribute-drag`
+   restore the retired spike reactions — do those first.
+3. **Gesture polish** (BACKLOG, optional) — clip tuning per `docs/PLAYBOOK-clips.md`.
+
+Completed queues: eye glints, limb extension + clips, **Phase 4 behavior engine +
+both playbooks** (work order was `docs/PHASE4.md`; every acceptance box verified —
+evidence in `docs/verification/phase4/`).
 
 ## Working agreements
 

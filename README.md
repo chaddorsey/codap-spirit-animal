@@ -25,8 +25,12 @@ Three layers, three crisp interfaces:
    iframe-phone against an embedded CODAP v3 (`?embeddedServer=yes`). Translates raw
    notifications into semantic events; maps tile geometry doc→screen (offset + scale
    calibration, persisted in localStorage).
-3. **Behaviors** (`web/src/codap-main.js`, spike-level) — event → reaction switchboard.
-   Phase 4 replaces this with a real behavior engine (escalation, cooldowns).
+3. **Behavior engine** (`web/src/behavior-engine.js` + `behaviors.js`) — behaviors as
+   data over bridge events + a clock: priority arbitration (one intervention at a
+   time), anti-annoyance cooldowns, subtle→overt escalation, cancel-on-student-action.
+   Spec table in `docs/BEHAVIORS.md`; add behaviors via `docs/PLAYBOOK-behaviors.md`.
+   Debug harness on `/codap.html` (live state, force-fire, simulated events,
+   `window.__engine.selfTest()`).
 
 ## Running
 

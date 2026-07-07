@@ -2,6 +2,11 @@
 
 ## Queued
 
+0. **Proposed behaviors** — `docs/BEHAVIORS.md` lists 8 specced-but-unbuilt
+   behaviors (selection glance, drag-follow, suggest-graph, milestones…). Each
+   is a one-entry change via `docs/PLAYBOOK-behaviors.md`; all needed clips
+   exist. Good cheap-model tasks.
+
 1. **Emote glyph fix** — `?` and `!` need a larger visible gap between the downstroke
    and the bottom point/dot. The helvetiker_bold font renders them nearly touching at
    our extrusion size. Options: geometrically separate (split TextGeometry per part and
@@ -25,11 +30,20 @@
   character.js turn 3/4 toward the target), scratch (chin), dance (loop),
   celebrate (full-V arms). 16 clips total.
 
+## Done (2026-07-06, Phase 4)
+
+- Behavior engine shipped (`web/src/behavior-engine.js` + `web/src/behaviors.js`):
+  one-at-a-time arbitration, priority, cooldowns, subtle→overt escalation,
+  cancel-on-student-action (<1s, live-measured 109–175ms). Four seed behaviors
+  live-verified against CODAP v3.0.3 (`docs/verification/phase4/`);
+  `window.__engine.selfTest()` 10/10. Debug harness in `/codap.html` (live state,
+  force-fire, simulated events). Spec table `docs/BEHAVIORS.md`; playbooks
+  `docs/PLAYBOOK-behaviors.md` + `docs/PLAYBOOK-clips.md`.
+- v3 finding: `component … attributeChange` notifications exist and fire on axis
+  assignment — celebrate/nudge triggers need no workarounds.
+
 ## Later
 
-- Behavior engine (Phase 4): utility/state-machine over bridge events, subtle→overt
-  escalation, anti-annoyance cooldowns; behavior spec table; playbooks for adding
-  clips/behaviors with cheaper models.
 - Calibration wizard: drag-the-axolotl-onto-a-tile-corner to solve offset+scale
   (host page cannot measure inside the cross-origin CODAP iframe).
 - `point` gesture reads subtly in profile (arm hides behind body) — tune clip.
