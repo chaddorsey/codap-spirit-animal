@@ -17,7 +17,17 @@
  */
 
 import { now } from './behavior-engine.js';
-import { perchOn, peekSide, kilroyOver, fallFrom } from './terrain.js';
+import { perchOn, peekSide, kilroyOver, fallFrom, withInspector } from './terrain.js';
+
+/** CODAP shows a floating inspector beside the FOCUSED tile — the most
+ *  recently created or touched one. Its rect must include that furniture
+ *  for right-edge peeks/hovers (Dot never surfaces in the gap). */
+const focusedTileRect = (state, c) => {
+  const stamp = (k) => Math.max(k.createdAt ?? 0, k.lastInteractionAt ?? 0);
+  const newest = [...state.components.values()].filter((k) => k.bounds)
+    .sort((a, b) => stamp(b) - stamp(a))[0];
+  return newest?.id === c.id ? withInspector(c.bounds) : c.bounds;
+};
 
 const GREET_COOLDOWN_SEC = 8;
 const GREET_GEOMETRY_WAIT_SEC = 6;    // componentList lags creates; don't hang
@@ -665,9 +675,13 @@ export function makeBehaviors() {
           const side = actor.getPosition().x < c.bounds.x + c.bounds.w / 2 ? 'left' : 'right';
           const speed = ctx.pick(['slow', 'medium'],
             [0.6 + state.mood.sleepy, 0.6 + state.mood.playful]);
-          await peekSide(actor, c.bounds, ctx, { side, speed, holdSec });
+          // right-edge peeks respect the inspector palette: Dot ducks behind
+          // tile + menu as one piece of furniture, never the gap between
+          const r = side === 'right' ? focusedTileRect(state, c) : c.bounds;
+          await peekSide(actor, r, ctx, { side, speed, holdSec });
         } else {
-          await actor.moveTo(c.bounds.x + c.bounds.w + 45, c.bounds.y + 30);
+          const r = focusedTileRect(state, c);
+          await actor.moveTo(r.x + r.w + 45, r.y + 30);
           actor.lookAt(c.bounds.x + c.bounds.w / 2, c.bounds.y + c.bounds.h / 2);
           await ctx.sleep(3.5);                    // just hovering, curious
           actor.clearGaze();

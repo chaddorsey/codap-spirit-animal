@@ -17,11 +17,21 @@ const PERCH_CENTER_ABOVE_EDGE_PX = 12;  // seated belly rests ON the ledge
                                         // visual bottom sits well above the
                                         // bind-pose bbox; tail drapes over)
 const PEEK_SPEEDS = { slow: 45, medium: 95 };   // px/s emergence
-const KILROY_CENTER_AT_EDGE_PX = 0;     // center AT the edge: head + hooked
-                                        // paws crest it, body hidden below
+const KILROY_CENTER_BELOW_EDGE_PX = 20; // center a bit BELOW the edge: only
+                                        // eyes + hooked paw-tips crest it
+const INSPECTOR_W_PX = 92;              // CODAP v3 floating inspector palette
+                                        // (+ gap) to the RIGHT of the
+                                        // focused tile
 const HIDE_DEPTH_PX = 60;               // how far "behind the wall" Dot ducks
 const FALL_DISTANCE_PX = 150;
 const FALL_SPEED_PX_S = 1100;
+
+/** The focused tile's furniture includes its floating inspector palette —
+ *  Dot must never swim (or surface) between a tile and its side menu.
+ *  Callers extend the rect with this before right-edge peeks or hovers. */
+export function withInspector(rect) {
+  return { ...rect, w: rect.w + INSPECTOR_W_PX };
+}
 
 /** Sit on the top edge of `rect` at fraction `t` across it. Leaves Dot
  *  perched (base = perch); caller decides how long and how to leave. */
@@ -74,7 +84,7 @@ export async function kilroyOver(actor, rect, ctx, { t = 0.5, holdSec = 2.5 } = 
   await ctx.sleep(0.6);                           // the wall is suspiciously quiet
   // rise: eyes and paws over the edge
   actor.play('kilroy', { hold: true });
-  await actor.moveTo(px, edgeY + KILROY_CENTER_AT_EDGE_PX,
+  await actor.moveTo(px, edgeY + KILROY_CENTER_BELOW_EDGE_PX,
     { pixelsPerSecond: PEEK_SPEEDS.slow });
   actor.lookAt(rect.x + rect.w / 2, rect.y + rect.h / 2);
   await ctx.sleep(holdSec);                       // just... watching
