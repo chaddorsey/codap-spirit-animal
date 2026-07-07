@@ -363,11 +363,16 @@ def _tinkerbell(t, P):
         y = -0.20 * _smooth(k)
         b = sin(pi * k)
         P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
-    elif t < 0.24:                            # prep: ascend the 15deg-left line
-        e = _smooth((t - 0.06) / 0.18)
-        x = _TK_P2[0] * e
-        y = -0.20 + (_TK_P2[1] + 0.20) * e
-        roll = _TK_ANG * e
+    elif t < 0.24:                            # prep: SWOOP up onto the shelf —
+        e = _smooth((t - 0.06) / 0.18)        # out to the right, then arcing
+        b1 = (0.55, 0.55)                     # up-left; bezier control point
+        u = 1 - e
+        x = 2 * u * e * b1[0] + e * e * _TK_P2[0]
+        y = u * u * -0.20 + 2 * u * e * b1[1] + e * e * _TK_P2[1]
+        tx = 2 * u * b1[0] + 2 * e * (_TK_P2[0] - b1[0])
+        ty = 2 * u * (b1[1] + 0.20) + 2 * e * (_TK_P2[1] - b1[1])
+        lean = math.atan2(-tx, ty)            # lean into the travel direction,
+        roll = lean * 0.6 * (1 - e) + _TK_ANG * e   # settling on the shelf lean
     elif t < 0.272:                           # prep: brief bob on the "shelf"
         k = (t - 0.24) / (0.272 - 0.24)
         x, y = _TK_P2
@@ -383,7 +388,7 @@ def _tinkerbell(t, P):
         kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees
         # springy release: fast attack, gradual slowdown over the last
         # quarter-turn, small residual speed into the settle arc
-        k = (1 - (1 - kr) ** 2.2) * 0.75 + 0.25 * kr
+        k = (1 - (1 - kr) ** 2.6) * 0.5 + 0.5 * kr   # springy attack, mild end taper
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
@@ -397,6 +402,7 @@ def _tinkerbell(t, P):
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
     elif t < 0.90:                            # settle: ballistic mini-arc from
         k = (t - T2) / (0.90 - T2)            # circle exit up over the apex and
+        k = 1 - (1 - k) ** 2                  # rapid ease-out once off the circle
         x = _TK_PX[0] + (_TK_P2[0] - _TK_PX[0]) * k     # down to the bob point
         y = _TK_PX[1] + _TK_ARC_B * k + _TK_ARC_A * k * k
         upr = min(1.0, k / _TK_KAPEX)         # upright by the apex
