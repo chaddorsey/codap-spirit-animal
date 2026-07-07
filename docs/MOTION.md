@@ -61,7 +61,12 @@ behavior, and locomotion path. When in doubt, watch tinkerbell and match it.
 
 ## Applying it to behaviors (e.g. zoomies)
 
-Zoomies currently reads as "manic DVD screensaver": straight lines, constant
+*(Applied 2026-07-07: zoomies now runs arcing loop chains per below; the
+multi-leg behaviors — tile-mischief swoop, greet bounding, pounce approach,
+the nap-fall slip, peek/kilroy approaches — chain with `arrive:false` so
+speed carries through corners and rituals happen only at true arrivals.)*
+
+Zoomies previously read as "manic DVD screensaver": straight lines, constant
 speed, instant wall-bounce reversals. Dot-being-Dot zoomies should:
 
 - pick **arcing waypoint chains** (loops, figure-eights, swooping S-curves

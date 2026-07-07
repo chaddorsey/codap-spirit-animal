@@ -257,47 +257,49 @@ export class Axolotl {
    *  props.js. (Additive, Phase 5 — bat-a-point mischief.) */
   spawnDot(px, py, opts) { return new PointDouble(this.stage, px, py, opts); }
 
-  // ------------------------------------------------------------ clipping
-  // "Behind a tile" is faked with one clipping plane at the tile's edge:
-  // the overlay always renders in front of the iframe, so we hide the part
-  // of the body that should be occluded. (Additive, Phase 6 — terrain.)
-  // Stage mapping: screen up == world +Y, screen right == world -Z.
+  // ------------------------------------------------------------ covers
+  // "Behind furniture" is faked with depth-occluder quads: invisible
+  // (colorWrite:false) depth-writing rectangles between the camera and Dot,
+  // rendered first — Dot's fragments behind them fail the depth test and
+  // the transparent canvas shows CODAP through. Any number of rects, each
+  // EXACTLY the furniture's size (tile, inspector palette, …). Replaces
+  // the single-clipping-plane approach, whose infinite half-plane hid Dot
+  // far beyond the furniture's actual extent.
 
-  _clipPlane() {
-    if (!this._plane) {
-      this._plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      this._clipMats = new Set();
-      this.model.traverse((o) => { if (o.material) this._clipMats.add(o.material); });
-      this.stage.renderer.localClippingEnabled = true;
+  /** Hide whatever parts of the body sit behind these screen rects. */
+  coverRects(rects) {
+    this.clearCovers();
+    this._covers = rects.map((r) => {
+      const geo = new THREE.PlaneGeometry(
+        r.w / this.stage.pixelsPerUnit, r.h / this.stage.pixelsPerUnit);
+      const mat = new THREE.MeshBasicMaterial({ colorWrite: false });
+      const m = new THREE.Mesh(geo, mat);
+      const c = this.stage.worldFromScreen(r.x + r.w / 2, r.y + r.h / 2);
+      m.position.set(4, c.y, c.z);        // between camera (+X) and Dot
+      m.rotation.y = Math.PI / 2;         // face the ortho camera
+      m.renderOrder = -1;                 // depth-fill before Dot renders
+      this.stage.scene.add(m);
+      return m;
+    });
+  }
+
+  clearCovers() {
+    for (const m of this._covers ?? []) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
     }
-    return this._plane;
+    this._covers = [];
   }
 
-  _applyClip(on) {
-    this._clipPlane();
-    for (const m of this._clipMats) m.clippingPlanes = on ? [this._plane] : null;
-  }
-
-  /** Hide the body below (or above) screen row `py` — the Kilroy edge. */
+  /** @deprecated compat shim — cover everything below/above a screen row. */
   clipAtScreenY(py, { keepAbove = true } = {}) {
-    const wy = this.stage.worldFromScreen(0, py).y;
-    const p = this._clipPlane();
-    p.normal.set(0, keepAbove ? 1 : -1, 0);
-    p.constant = keepAbove ? -wy : wy;
-    this._applyClip(true);
+    this.coverRects([keepAbove
+      ? { x: 0, y: py, w: window.innerWidth, h: window.innerHeight - py }
+      : { x: 0, y: 0, w: window.innerWidth, h: py }]);
   }
 
-  /** Hide the body beyond screen column `px` — the side-peek edge. */
-  clipAtScreenX(px, { keepLeft = true } = {}) {
-    const wz = this.stage.worldFromScreen(px, 0).z;
-    const p = this._clipPlane();
-    // keepLeft: visible where screen-x < px, i.e. world z > wz
-    p.normal.set(0, 0, keepLeft ? 1 : -1);
-    p.constant = keepLeft ? -wz : wz;
-    this._applyClip(true);
-  }
-
-  clearClip() { if (this._plane) this._applyClip(false); }
+  clearClip() { this.clearCovers(); }
 
   // ------------------------------------------------------------ emotes
   /** Show '?', '!', or '?!' bobbing above the head. duration 0 = sticky. */

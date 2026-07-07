@@ -17,16 +17,20 @@
  */
 
 import { now } from './behavior-engine.js';
-import { perchOn, peekSide, kilroyOver, fallFrom, withInspector } from './terrain.js';
+import { perchOn, peekSide, kilroyOver, fallFrom, withInspector,
+  inspectorRectFor } from './terrain.js';
 
 /** CODAP shows a floating inspector beside the FOCUSED tile — the most
- *  recently created or touched one. Its rect must include that furniture
- *  for right-edge peeks/hovers (Dot never surfaces in the gap). */
-const focusedTileRect = (state, c) => {
+ *  recently created or touched one. Returns { edgeRect, covers }: edgeRect
+ *  for edge math (spans tile+inspector when focused), covers as the EXACT
+ *  furniture rects so occlusion never overruns the palette. */
+const furnitureFor = (state, c) => {
   const stamp = (k) => Math.max(k.createdAt ?? 0, k.lastInteractionAt ?? 0);
   const newest = [...state.components.values()].filter((k) => k.bounds)
     .sort((a, b) => stamp(b) - stamp(a))[0];
-  return newest?.id === c.id ? withInspector(c.bounds) : c.bounds;
+  if (newest?.id !== c.id) return { edgeRect: c.bounds, covers: [c.bounds] };
+  return { edgeRect: withInspector(c.bounds),
+    covers: [c.bounds, inspectorRectFor(c.bounds)] };
 };
 
 const GREET_COOLDOWN_SEC = 8;
@@ -182,7 +186,8 @@ export function makeBehaviors() {
           [1, 0.5 + 2 * state.mood.playful, 0.3 + 2 * state.mood.sleepy]);
         if (style === 'bounding') {
           const here = actor.getPosition();
-          await actor.moveTo((here.x + x + w) / 2, (here.y + y + h / 2) / 2);
+          await actor.moveTo((here.x + x + w) / 2, (here.y + y + h / 2) / 2,
+            { arrive: false });                    // speed carries into the hop
           await actor.play('hop');                 // bounds instead of walking
         } else if (style === 'peek') {
           await actor.moveTo(x + w + BESIDE_TILE_PX + 90, y + h / 2 + 30);
@@ -496,8 +501,9 @@ export function makeBehaviors() {
         await bridge.request('update', `component[${c.id}]`,
           { position: { left: (pos.left ?? 0) + TILE_MISCHIEF_NUDGE_PX, top: pos.top ?? 0 } });
         await bat1;
-        // ...swoop around to the far side...
-        await actor.moveTo(x + w + 55, y - 40, { pixelsPerSecond: 600 });
+        // ...swoop around to the far side (one continuous arc, speed
+        // carried over the top per the motion profile)...
+        await actor.moveTo(x + w + 55, y - 40, { pixelsPerSecond: 600, arrive: false });
         await actor.moveTo(x + w + 40, y + h / 2, { pixelsPerSecond: 600 });
         // ...and bat it back exactly where it was
         const bat2 = actor.play('bat_R');
@@ -561,6 +567,34 @@ export function makeBehaviors() {
         const away = openWater(state);
         await actor.moveTo(away.x, away.y, { pixelsPerSecond: 650 });
         await actor.play('proud');
+      },
+    },
+
+    // -------------------------------------------------- nuzzle-cursor
+    // Sometimes the whisker touch isn't "excuse me" — it's "oh, hello."
+    // High spirits + luck: Dot sidles up beside the cursor and rubs against
+    // it like a kitten against an ankle — two slow cheek-first leans through
+    // the spot, a lingering lean, the proud beat. The halo is inert during
+    // all of this, so clicks pass straight through Dot. Rare by design;
+    // yield-to-mouse (one priority below) catches every other touch.
+    {
+      id: 'nuzzle-cursor',
+      priority: 59,
+      cooldownSec: 150,
+      trigger: (state, event) => event.type === 'mouse:near'
+        && state.mood.playful > 0.6 && Math.random() < 0.4,
+      async run(actor, state, ctx) {
+        const m = ctx.event?.detail ?? {};
+        if (m.x == null) return;                   // force-fired without a cursor
+        await actor.moveTo(m.x + 30, m.y + 10, { pixelsPerSecond: 170, arrive: false });
+        // the rub: slow leans through the cursor spot, head tilted in
+        actor.play('head_tilt');
+        await actor.moveTo(m.x - 14, m.y + 2, { pixelsPerSecond: 70, arrive: false });
+        await actor.moveTo(m.x + 24, m.y + 12, { pixelsPerSecond: 70, arrive: false });
+        actor.play('head_tilt');
+        await actor.moveTo(m.x - 8, m.y + 4, { pixelsPerSecond: 60 });
+        await ctx.sleep(0.5);                      // the lingering lean
+        await actor.play('proud');                 // deeply satisfied
       },
     },
 
@@ -634,9 +668,10 @@ export function makeBehaviors() {
         actor.lookAt(tx, ty);
         await ctx.sleep(POUNCE_STALK_SEC);        // the stalk-freeze is the setup
         const here = actor.getPosition();
-        // close most of the distance fast, then the pounce clip does the leap
+        // close most of the distance fast — no settle ritual, the pounce
+        // clip's own crouch-anticipation takes over immediately
         await actor.moveTo(tx + (here.x > tx ? 130 : -130), ty + 40,
-          { pixelsPerSecond: 700 });
+          { pixelsPerSecond: 700, arrive: false });
         await actor.play('pounce');
         actor.clearGaze();
         await actor.play('proud');                // rule 3: proud after anything
@@ -699,18 +734,20 @@ export function makeBehaviors() {
         const c = ctx.pick(tiles);
         const mode = ctx.pick(['kilroy', 'side', 'hover'], [1.2, 1.2, 0.8]);
         const holdSec = 2 + Math.random() * 2;
+        const { edgeRect, covers } = furnitureFor(state, c);
         if (mode === 'kilroy') {
-          await kilroyOver(actor, c.bounds, ctx, { t: 0.3 + Math.random() * 0.4, holdSec });
+          await kilroyOver(actor, c.bounds, ctx,
+            { t: 0.3 + Math.random() * 0.4, holdSec, covers });
         } else if (mode === 'side') {
           const side = actor.getPosition().x < c.bounds.x + c.bounds.w / 2 ? 'left' : 'right';
           const speed = ctx.pick(['slow', 'medium'],
             [0.6 + state.mood.sleepy, 0.6 + state.mood.playful]);
-          // right-edge peeks respect the inspector palette: Dot ducks behind
-          // tile + menu as one piece of furniture, never the gap between
-          const r = side === 'right' ? focusedTileRect(state, c) : c.bounds;
-          await peekSide(actor, r, ctx, { side, speed, holdSec });
+          // right-edge peeks duck behind tile + inspector (exact rects),
+          // never surfacing in the gap between them
+          const r = side === 'right' ? edgeRect : c.bounds;
+          await peekSide(actor, r, ctx, { side, speed, holdSec, covers });
         } else {
-          const r = focusedTileRect(state, c);
+          const r = edgeRect;
           await actor.moveTo(r.x + r.w + 45, r.y + 30);
           actor.lookAt(c.bounds.x + c.bounds.w / 2, c.bounds.y + c.bounds.h / 2);
           await ctx.sleep(3.5);                    // just hovering, curious
@@ -768,7 +805,10 @@ export function makeBehaviors() {
           w: b.w - PLOT_INSET.left - PLOT_INSET.right,
           h: PLOT_INSET.bottom,
         };
-        await kilroyOver(actor, axisRect, ctx, { t: 0.5, holdSec: 2.5 });
+        // covered by the TILE (Dot hides behind the whole graph while
+        // rising); the axis rect only supplies the crest edge
+        await kilroyOver(actor, axisRect, ctx,
+          { t: 0.5, holdSec: 2.5, covers: [b] });
       },
     },
 
@@ -809,11 +849,32 @@ export function makeBehaviors() {
       trigger: (state, event) =>
         event.type === 'tick' && state.mood.playful > ZOOMIES_PLAYFUL_GATE,
       async run(actor, state, ctx) {
-        for (let i = 0; i < ZOOMIES_LAPS; i++) {
-          const p = openWater(state);
-          await actor.moveTo(p.x, p.y, { pixelsPerSecond: ZOOMIES_SPEED_PX_S });
+        // Dot-being-Dot zoomies (docs/MOTION.md): telegraph, then a swooping
+        // arc chain — loops and S-curves, speed carried through corners,
+        // descents faster than climbs — closing with the arrival ritual
+        // and the happy-dance settle.
+        await ctx.sleep(0.16);                     // the stillness before it
+        const c = openWater(state);
+        const rx = 150 + Math.random() * 130;      // loop radii
+        const ry = 100 + Math.random() * 80;
+        const start = Math.random() * Math.PI * 2;
+        const ccw = Math.random() < 0.5 ? 1 : -1;
+        const laps = 2;
+        const STEPS = 6;                           // waypoints per lap
+        for (let i = 1; i <= laps * STEPS; i++) {
+          const a = start + ccw * (i / STEPS) * Math.PI * 2;
+          const x = Math.max(60, Math.min(window.innerWidth - 60, c.x + rx * Math.cos(a)));
+          const y = Math.max(90, Math.min(window.innerHeight - 60, c.y + ry * Math.sin(a)));
+          const last = i === laps * STEPS;
+          const climbing = y < actor.getPosition().y;
+          await actor.moveTo(x, y, {
+            pixelsPerSecond: ZOOMIES_SPEED_PX_S * (climbing ? 0.85 : 1.05),
+            arrive: last,                          // ritual only at the end
+          });
         }
-        await actor.play('hop');                   // abrupt stop, shake it off
+        actor.play('dance');                       // the happy-dance settle
+        await ctx.sleep(1.3);
+        actor.release();
         state.mood.playful *= 0.6;                 // energy spent
       },
     },

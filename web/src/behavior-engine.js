@@ -512,14 +512,13 @@ export class BehaviorEngine {
       this.remove('st-mood-gate');
       Object.assign(mood, savedMood);
 
-      // 7. cancel clears terrain clipping (Phase 6)
-      if (this.actor.clipAtScreenY) {
-        this.actor.clipAtScreenY(120, { keepAbove: true });
+      // 7. cancel clears terrain covers (Phase 6)
+      if (this.actor.coverRects) {
+        this.actor.coverRects([{ x: 100, y: 100, w: 200, h: 150 }]);
         this.forceFire('idle-companion');
         this.cancelActive('selfTest');
-        const anyClipped = [...(this.actor._clipMats ?? [])]
-          .some((m) => m.clippingPlanes?.length);
-        check('cancel clears terrain clipping', !anyClipped);
+        check('cancel clears terrain covers',
+          (this.actor._covers ?? []).length === 0);
       }
 
       // 8. ctx.pick respects weights

@@ -86,7 +86,8 @@ value` ops (mapped to `slider:change`).
 
 | id | Trigger | Gate / condition | Sequence | Cooldown | Priority | Clips |
 |---|---|---|---|---|---|---|
-| `yield-to-mouse` | `mouse:near` (whisker halo) | cursor entered Dot's personal space | drift promptly-but-sweetly ~190 px away from the cursor, glance back ("you go ahead") | 8 s | 58 | — |
+| `nuzzle-cursor` | `mouse:near` (whisker halo) | playful > .6, 40% chance | sidle up beside the cursor, two slow cheek-first leans through the spot (head_tilt), lingering lean, proud beat. Halo inert throughout — clicks pass through Dot | 150 s | 59 | head_tilt, proud |
+| `yield-to-mouse` | `mouse:near` (whisker halo) | cursor entered Dot's personal space (everything nuzzle doesn't take) | drift promptly-but-sweetly ~190 px away from the cursor, glance back ("you go ahead") | 8 s | 58 | — |
 | `peek-at-tile` | tick | curious > .55, tile exists | `ctx.pick` of Kilroy-over-the-top / side face-sliver (slow or medium emerge, never rapid) / curious hover; gaze into the tile; slip away | 180 s | 19 | kilroy |
 | `perch-on-tile` | tick | curious > .4, tile exists | sit on the top edge (`perch` loop), glance about; if sleepy > .35 and the student is quiet: nap on the ledge → droop → **fall** → startle → proud (< 2 s recovery) | 240 s | 16 | perch, droop, startle, proud |
 | `demo-peek-axis` | force-fire only | a graph exists | Kilroy aimed at the x-axis REGION (tile bounds + plot insets) — the targetability proof | — | 1 | kilroy |
@@ -100,11 +101,15 @@ Re-arms 2.5 s later. Input is never intercepted beyond that single enter.
 
 Terrain primitives (`web/src/terrain.js`) take **any** screen rect —
 `perchOn / peekSide / kilroyOver / fallFrom` — so the wise-kitten phase can
-aim them at menus, attribute headers, and axes. Occlusion is one clipping
-plane at the target edge (`clipAtScreenX/Y`, additive on Axolotl);
-`actor.stop()` and every primitive's `ctx.onCancel` clear it, and selfTest
-asserts cancel-clears-clipping. Verified live: perch ON a real tile,
-Kilroy rising from behind a real graph's axis region, nap-fall completed.
+aim them at menus, attribute headers, and axes. Occlusion is **depth-occluder
+quads** (`actor.coverRects(rects)`): invisible depth-only rectangles, each
+EXACTLY the furniture's size — tile 380×300, inspector palette 80×272 flush
+right (measured v3.0.3) — so covers never overrun the furniture (the earlier
+clipping-plane approach hid Dot along an infinite half-plane). Multiple rects
+compose (tile + inspector as separate covers). `actor.stop()` and every
+primitive's `ctx.onCancel` clear them; selfTest asserts cancel-clears-covers.
+Verified live: perch ON a real tile, Kilroy from behind a real axis region,
+face-sliver peek at the inspector's exact right edge, nap-fall completed.
 
 ## Proposed (next candidates)
 
