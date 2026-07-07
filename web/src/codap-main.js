@@ -2,8 +2,9 @@ import { Stage } from './stage.js';
 import { Axolotl } from './character.js';
 import { CodapBridge } from './codap-bridge.js';
 import { BehaviorEngine } from './behavior-engine.js';
-import { makeBehaviors } from './behaviors.js';
+import { makeBehaviors, MIND } from './behaviors.js';
 import { Whisker } from './whisker.js';
+import { analyzeDataset, suggestMoves } from './insight.js';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -148,6 +149,49 @@ const sims = {
   },
 };
 document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.dataset.sim]; });
+
+// ------------------------------------------------------------- Dot's mind
+// Full reasoning exposed: Phase 7 (data-move reactions) in blue, Phase 8
+// (insight-driven suggestions, with live rationale) in dark red.
+const MIND_COLORS = { 7: '#1c63d6', 8: '#8b1a1a' };
+engine.onFire = (b, event, escalated) => {
+  const m = MIND[b.id];
+  const div = document.createElement('div');
+  const desc = m?.describe?.(event, engine.state) ?? '(no description)';
+  div.textContent = `▶ ${b.id}${escalated ? ' ESC' : ''} — ${desc}`;
+  div.style.color = MIND_COLORS[m?.phase] ?? '#555';
+  const box = $('#mindLog');
+  box.appendChild(div);
+  while (box.childElementCount > 60) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight;
+};
+
+async function refreshInsight() {
+  try {
+    const analysis = await analyzeDataset(bridge);
+    if (!analysis) { $('#mindAnalysis').textContent = 'no populated dataset yet'; return; }
+    const suggestions = suggestMoves(analysis, engine.state.dataMoves);
+    engine.state.insight = { ...analysis, suggestions };
+    const a = analysis;
+    $('#mindAnalysis').textContent =
+      `${a.context}: ${a.caseCount} cases, ${a.attrs.length} attrs `
+      + `(${a.attrs.map(x => `${x.name}:${x.kind === 'numeric' ? 'num' : `cat×${x.cardinality}`}`).join(', ')})\n`
+      + `outliers: ${a.outliers.length ? a.outliers.map(o => `${o.attr}=${o.value} (z=${o.z})`).join('; ') : 'none'}\n`
+      + `correlations: ${a.correlations.length ? a.correlations.map(c => `${c.a}×${c.b} r=${c.r}`).join('; ') : 'n/a'}\n`
+      + `hierarchical: ${a.isHierarchical ? 'yes' : 'no (flat)'}`;
+    $('#mindSuggest').textContent = suggestions.length
+      ? suggestions.slice(0, 4).map((s, i) =>
+          `${i + 1}. [${s.move}] (score ${s.score.toFixed(2)}) ${s.rationale}`).join('\n')
+      : 'nothing tempting right now';
+  } catch (err) { $('#mindAnalysis').textContent = `analysis failed: ${err.message}`; }
+}
+$('#analyzeNow').onclick = refreshInsight;
+bridge.addEventListener('connected', () => setTimeout(refreshInsight, 3000));
+let insightTimer;
+bridge.addEventListener('datamove', () => {   // moves change the affordances
+  clearTimeout(insightTimer);
+  insightTimer = setTimeout(refreshInsight, 2500);
+});
 
 // mood debug: crank one dial high (others untouched) to provoke gated squibs
 document.querySelectorAll('[data-mood]').forEach(b => {

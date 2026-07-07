@@ -145,6 +145,52 @@ const emptyGraph = (s) => {
 const nudgeTarget = (s) =>
   emptyGraph(s) ?? [...s.components.values()].filter((c) => isGraph(c) && c.bounds).at(-1);
 
+/**
+ * MIND — one-line reasoning per behavior for the "Dot's mind" panel.
+ * phase drives the color: 7 = blue (data-move reactions), 8 = dark red
+ * (insight-driven suggestions, with live rationale), others = gray.
+ */
+export const MIND = {
+  'celebrate-first-plot': { phase: 4, describe: () => 'First axis attribute of the session — witnessing a birth. Once per session.' },
+  'greet-new-component': { phase: 4, describe: (e) => `New ${e?.detail?.type ?? 'tile'} appeared — a new box! Hop, swim over, peer inside.` },
+  'nudge-empty-graph': { phase: 4, describe: () => 'A graph has sat empty >2 min while the student works elsewhere — subtle ? beside it; escalates to a tap after 2 ignored nudges.' },
+  'idle-companion': { phase: 4, describe: () => 'No student action for 90s — dozing off. Any action wakes with a !.' },
+  'follow-attribute-drag': { phase: 4, describe: () => 'An attribute is being dragged — gaze tracks it; celebrate on drop.' },
+  'glance-at-selection': { phase: 4, describe: (e) => `Student selected ${e?.detail?.count ?? 'some'} case(s) — curious glance.` },
+  'celebrate-first-selection': { phase: 4, describe: () => 'First selection of the session — approving nod.' },
+  'dance-on-data-milestone': { phase: 4, describe: () => 'A dataset crossed 25 cases — that deserves a dance.' },
+  'nudge-idle-table': { phase: 4, describe: () => 'A case table has sat without new cases — gentle ? nudge; escalates politely.' },
+  'suggest-graph-for-data': { phase: 4, describe: () => 'Data exists but no graph — pointing at the Graph button.' },
+  'peer-at-big-selection': { phase: 4, describe: (e) => `Big selection (${e?.detail?.count ?? '10+'}) — swimming over to peer at it.` },
+  'scratch-on-thrash': { phase: 5, describe: () => '4+ tiles created/deleted in 30s — head-scratch of sympathetic confusion.' },
+  'startle': { phase: 5, describe: () => 'Tiles vanished suddenly — startled jump, instant curious recovery (<2s).' },
+  'pounce-at-drag': { phase: 5, describe: () => 'Something is MOVING (slider) — stalk-freeze, pounce, overshoot, proud.' },
+  'absorbed-discovery': { phase: 5, describe: () => 'One plotted dot is currently the most interesting object in the universe.' },
+  'head-tilt-investigate': { phase: 5, describe: () => 'Considering an unfamiliar tile from two angles.' },
+  'zoomies': { phase: 5, describe: () => 'Unspent joy — arcing laps of open canvas, happy-dance settle.' },
+  'tile-mischief': { phase: 5, describe: () => 'Unspent energy: bat a tile 12px (real move), swoop around, bat it back. Self-undoing.' },
+  'bat-a-point': { phase: 5, describe: () => 'Batting a visual double of the outlier dot — like recognizes like. Data untouched.' },
+  'sit-nearby': { phase: 5, describe: () => 'Indirect affection: just being near the tile the student uses most.' },
+  'roll-over': { phase: 5, describe: () => 'Rare high-trust barrel roll. No reason. Kittens.' },
+  'perch-on-tile': { phase: 6, describe: () => 'Tiles are terrain — sitting on a top edge; sleepy + quiet may become a nap (and naps on ledges end one way).' },
+  'peek-at-tile': { phase: 6, describe: () => 'Kid-behind-a-wall: Kilroy over the top, a side face-sliver, or a curious hover.' },
+  'demo-peek-axis': { phase: 6, describe: () => 'Targetability demo: Kilroy aimed at an axis REGION, not a tile.' },
+  'yield-to-mouse': { phase: 6, describe: () => 'Cursor entered the whisker halo — moving sweetly out of the way ("you go ahead").' },
+  'nuzzle-cursor': { phase: 6, describe: () => 'The whisker touch was "oh, hello" — rubbing against the cursor like an ankle.' },
+  'cheer-data-move': { phase: 7, describe: (e, s) => {
+    const d = e?.detail ?? {};
+    const n = s?.dataMoves?.get?.(d.move)?.count ?? 1;
+    return `DATA MOVE: ${d.move}${d.kind ? ` (${d.kind})` : ''} — #${n} this session. `
+      + (n <= 1 ? 'First of its kind: celebrate, then investigate the result.'
+        : 'Repeat: acknowledgment shrinks with novelty decay.');
+  } },
+  'wise-attend': { phase: 8, describe: (e, s) => {
+    const sug = s?.insight?.suggestions?.[0];
+    return sug ? `INSIGHT → ${sug.move}: ${sug.rationale}`
+      : 'Drawn to the top-ranked dataset insight.';
+  } },
+};
+
 export function makeBehaviors() {
   return [
 
@@ -926,6 +972,78 @@ export function makeBehaviors() {
         // rising); the axis rect only supplies the crest edge
         await kilroyOver(actor, axisRect, ctx,
           { t: 0.5, holdSec: 2.5, covers: [b] });
+      },
+    },
+
+    // -------------------------------------------------- wise-attend (Phase 8 PoC)
+    // The inverted classifier in motion: state.insight (populated by the
+    // wrapper from insight.js) holds ranked suggestions — moves NOT yet
+    // tried crossed with what the dataset affords. Dot delivers the top one
+    // purely as ATTENTION: fascinated by exactly the right thing, one beat
+    // of knowing stillness, then a kitten again. Never wrong loudly.
+    {
+      id: 'wise-attend',
+      priority: 24,
+      cooldownSec: 240,
+      trigger(state, event, mem) {
+        if (event.type !== 'tick') return false;
+        if (state.mood.curious < 0.45) return false;
+        const s = state.insight?.suggestions?.[0];
+        return !!s && !(mem.done ?? {})[s.key];
+      },
+      async run(actor, state, ctx) {
+        const s = state.insight?.suggestions?.[0];
+        if (!s) return;
+        (ctx.mem.done ??= {})[s.key] = true;         // each insight offered once
+        state.lastSuggestion = s;                    // the mind panel narrates
+        const tiles = [...state.components.values()].filter((c) => c.bounds);
+        const graph = tiles.find((c) => isGraph(c));
+        const table = tiles.find((c) => (c.type ?? '').toLowerCase().includes('table'));
+        const t = s.target ?? {};
+        if (t.kind === 'graph-middle' && graph) {
+          // grouping: hover before the plot, utterly taken with its middle
+          const { x, y, w, h } = graph.bounds;
+          await actor.moveTo(x + w + BESIDE_TILE_PX, y + h * 0.45);
+          actor.lookAt(x + w * 0.55, y + h * 0.5);
+          await actor.play('head_tilt');
+          await ctx.sleep(3.5);                      // the knowing stillness
+          actor.clearGaze();
+        } else if (t.kind === 'outlier-point' && graph) {
+          // the lone dot: nose-close absorbed stare at its actual position
+          const props = (await ctx.engine.bridge?.request('get',
+            `component[${graph.id}]`))?.values;
+          let sx = graph.bounds.x + graph.bounds.w * 0.75;
+          if (props?.xUpperBound != null && props?.xAttributeName === t.attr) {
+            sx = plotX(graph.bounds, props, t.value);
+          }
+          const sy = graph.bounds.y + graph.bounds.h - PLOT_INSET.bottom - 8;
+          await actor.moveTo(sx + 55, sy - 15);
+          actor.lookAt(sx, sy);
+          await ctx.sleep(4);                        // cannot stop staring
+          actor.clearGaze();
+        } else if (t.kind === 'table-left' && table) {
+          // hierarchy: perch on the table's top edge near the LEFT, gazing
+          // down at where the drag would go
+          await perchOn(actor, table.bounds, ctx, { t: 0.12 });
+          actor.lookAt(table.bounds.x + 30, table.bounds.y + table.bounds.h * 0.4);
+          await ctx.sleep(3.5);
+          actor.clearGaze();
+          actor.setBase('idle');
+          await actor.play('hop');
+        } else if (t.kind === 'graph-measure' && graph) {
+          // summarizing: Kilroy over the graph — what's the middle of these?
+          await kilroyOver(actor, graph.bounds, ctx,
+            { t: 0.5, holdSec: 3, covers: [graph.bounds] });
+        } else if (table ?? graph) {
+          // relationships / fallback: sit beside the data, consider it twice
+          const c = table ?? graph;
+          const { x, y, w, h } = c.bounds;
+          await actor.moveTo(x + w + BESIDE_TILE_PX, y + h * 0.3);
+          actor.lookAt(x + w / 2, y + 30);
+          await actor.play('head_tilt');
+          await ctx.sleep(2.5);
+          actor.clearGaze();
+        }
       },
     },
 

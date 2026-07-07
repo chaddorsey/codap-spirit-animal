@@ -293,6 +293,8 @@ export class BehaviorEngine {
     this.state.active = active;
     this.log(`▶ ${b.id}${escalated ? ' ESCALATED' : ''}${forced ? ' (forced)' : ''}`);
 
+    // mind hook (Phase 8 PoC): let the host narrate why this fired
+    try { this.onFire?.(b, event, escalated); } catch { /* noop */ }
     const actor = this._guardedActor(token);
     const ctx = this._makeCtx(token, event, m.mem);
     const runFn = escalated ? b.escalation.run : b.run;
@@ -552,6 +554,11 @@ export class BehaviorEngine {
       } catch (err) { check('classifier fixtures load', false); }
       const cheer = this._meta.get('cheer-data-move');
       if (cheer) {
+        // a tick during the await gap above can start an ignoreActivity
+        // behavior (e.g. tile-mischief), which student actions can't
+        // displace — clear the stage and calm the mischief first
+        this.state.mood.mischievous = 0;
+        this.cancelActive('selfTest');
         const savedCheer = { lastFiredAt: cheer.lastFiredAt,
           mem: JSON.parse(JSON.stringify(cheer.mem)) };
         cheer.lastFiredAt = -Infinity;
