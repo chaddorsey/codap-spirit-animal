@@ -215,14 +215,19 @@ export class Axolotl {
 
   // ------------------------------------------------------------ locomotion
   /** Swim to a screen point. Resolves on arrival. */
-  moveTo(px, py, { pixelsPerSecond } = {}) {
+  moveTo(px, py, { pixelsPerSecond, arrive = true } = {}) {
     // speedFactor is a felt-only mood influence set by the behavior engine
     pixelsPerSecond ??= 260 * (this.speedFactor ?? 1);
     const target = this.stage.worldFromScreen(px, py);
+    const carryV = this.motion?.v ?? 0;       // chained legs keep their speed
     this.motion?.resolve?.();
     this.setBase('swim');
     return new Promise(resolve => {
-      this.motion = { target, speed: pixelsPerSecond / this.stage.pixelsPerUnit, resolve };
+      // Dot motion profile (docs/MOTION.md): attack ramp -> uniform cruise ->
+      // sharp late brake; arrive:true adds the overshoot-settle ritual,
+      // arrive:false carries speed through the corner for waypoint chains
+      this.motion = { target, cruise: pixelsPerSecond / this.stage.pixelsPerUnit,
+                      v: carryV, arrive, resolve, settle: -1, dir: null };
     });
   }
 
@@ -340,22 +345,47 @@ export class Axolotl {
 
     // locomotion
     if (this.motion) {
-      const { target, speed, resolve } = this.motion;
-      const delta = target.clone().sub(this.root.position);
-      const dist = delta.length();
-      const step = speed * dt;
-      const screenTarget = this.stage.screenFromWorld(target);
-      this.faceToward(screenTarget.x);
-      if (dist <= step) {
-        this.root.position.copy(target);
-        this.motion = null;
-        this.targetFacing = 0;
-        this.setBase('idle');
-        resolve();
+      const m = this.motion;
+      if (m.settle >= 0) {
+        // arrival ritual: small overshoot past the target, ease back, done
+        m.settle += dt;
+        const s = m.settle;
+        const ov = 0.16 * Math.sin(Math.min(1, s / 0.28) * Math.PI) * Math.max(0, 1 - s / 0.45);
+        this.root.position.copy(m.target).addScaledVector(m.dir, ov);
+        if (s >= 0.45) {
+          this.root.position.copy(m.target);
+          const done = m.resolve; this.motion = null;
+          this.targetFacing = 0;
+          this.setBase('idle');
+          done();
+        }
       } else {
-        delta.normalize().multiplyScalar(step);
-        this.root.position.add(delta);
-        this.root.position.y += Math.sin(this.clock * 5) * 0.012; // swim bob
+        const delta = m.target.clone().sub(this.root.position);
+        const dist = delta.length();
+        // attack fast, cruise uniform, brake sharply near the target
+        const brakeDist = m.arrive ? m.cruise * 0.24 : 0;
+        const want = dist < brakeDist
+          ? Math.max(0.18 * m.cruise, m.cruise * (dist / brakeDist) ** 1.5)
+          : m.cruise;
+        m.v += (want - m.v) * Math.min(1, dt * (want > m.v ? 10 : 16));
+        const step = m.v * dt;
+        const screenTarget = this.stage.screenFromWorld(m.target);
+        this.faceToward(screenTarget.x);
+        if (dist <= Math.max(step, 0.02)) {
+          m.dir = dist > 1e-5 ? delta.normalize() : new THREE.Vector3(0, 0, -1);
+          if (m.arrive) {
+            m.settle = 0;                      // begin the overshoot-settle
+          } else {
+            this.root.position.copy(m.target); // chained leg: keep speed, go
+            const done = m.resolve; this.motion = null;
+            done();
+          }
+        } else {
+          delta.normalize();
+          m.dir = delta;
+          this.root.position.addScaledVector(delta, step);
+          this.root.position.y += Math.sin(this.clock * 5) * 0.012; // swim bob
+        }
       }
     }
 
