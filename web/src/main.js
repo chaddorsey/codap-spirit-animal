@@ -33,6 +33,12 @@ for (const name of Object.keys(axo.actions)) {
 }
 
 $('#release').onclick = () => { axo.release(); axo.setBase('idle'); note('released'); };
+{
+  const b = document.createElement('button');
+  b.textContent = '😴 doze cycle';
+  b.onclick = () => { axo.doze(); note('dozing off…'); };
+  document.getElementById('clips').appendChild(b);
+}
 document.querySelectorAll('[data-emote]').forEach(b => {
   b.onclick = () => { axo.emote(b.dataset.emote); note(`emote: ${b.dataset.emote}`); };
 });

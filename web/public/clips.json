@@ -89,6 +89,11 @@
     "loop": false
   },
   {
+    "name": "dozeoff",
+    "seconds": 2.4,
+    "loop": false
+  },
+  {
     "name": "sleep",
     "seconds": 4.0,
     "loop": true

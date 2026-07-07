@@ -150,6 +150,7 @@ document.querySelectorAll('[data-mood]').forEach(b => {
 });
 
 // character clip test buttons (bypass the engine; loops toggle back to idle)
+document.querySelector('#dozeCycle').onclick = () => axo.doze();
 document.querySelectorAll('[data-clip]').forEach(b => {
   b.onclick = () => {
     const name = b.dataset.clip;

@@ -97,6 +97,10 @@ export class Axolotl {
       a.clampWhenFinished = true;
       this.actions[clip.name] = a;
     }
+    // blink bypasses the managed one-shot path (raw timer play), so it must
+    // not clamp at its final frame — a clamped finished blink holds the eyes
+    // at ~1.0 at full weight forever, halving every later eye animation
+    if (this.actions.blink) this.actions.blink.clampWhenFinished = false;
 
     this.bones = {};
     for (const n of ['head', 'eye_L', 'eye_R']) {
@@ -189,6 +193,15 @@ export class Axolotl {
 
   release(fade = 0.35) {
     if (this.oneShot) this._endOneShot(fade);
+  }
+
+  /** The full sleep cycle: drowsy eye-droop with the leftward tilt
+   *  (dozeoff), then the snoring sleep loop, with Zzz's shortly after. */
+  async doze() {
+    await this.play('dozeoff', { fade: 0.3 });
+    this.setBase('sleep', 0.35);
+    this.sleepSeconds = 6;                 // Zzz's begin ~2s into the snore
+    this.nextZzzAt = this.clock + 2;
   }
 
   /** Cancel any in-flight motion / one-shot / hold / gaze / emote and return

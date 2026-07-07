@@ -660,14 +660,38 @@ def _kilroy(t, P):
 
 
 def _sleep(t, P):
-    breathe = sin(2 * pi * t)                        # loopable slow breath
-    a = D(24 + 3 * breathe)                          # dozing forward nod, the
-    P.aim("head", (sin(a), 0, cos(a)))               # breath riding on it
+    # snoring doze: slight LEFTWARD head tilt (no forward component), sharp
+    # snore intake puffing chest + gills, head rocking faintly on it
+    inhale = max(0.0, sin(2 * pi * t)) ** 0.8
+    exhale = max(0.0, -sin(2 * pi * t))
+    tilt = D(10 + 1.5 * inhale)
+    P.aim("head", (0, -sin(tilt), cos(tilt)))        # ear toward shoulder only
     P.rot("chest", x=D(6), z=0)
-    P.scale("chest", 1 + 0.03 * breathe, 1 + 0.03 * breathe, 1 + 0.04 * breathe)
-    gill_wave(P, t, D(2), 1, sweep=D(10))            # drooped
+    sc = 1 + 0.05 * inhale - 0.02 * exhale
+    P.scale("chest", sc, sc, 1 + 0.06 * inhale - 0.02 * exhale)
+    gill_wave(P, t, D(2), 1, sweep=D(10 + 2.5 * inhale))   # gills puff on intake
     P.scale("eye_L", 1, 1, 0.10)                     # eyes closed
     P.scale("eye_R", 1, 1, 0.10)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(2) * sin(2 * pi * t - i * 0.4))
+
+
+def _dip(t, c, w):
+    return max(0.0, sin(pi * min(max((t - c + w) / (2 * w), 0.0), 1.0)))
+
+
+def _dozeoff(t, P):
+    # fighting sleep: eyes droop with two slow heavy blinks while the head
+    # settles into the slight leftward sleep tilt; ends exactly at the
+    # sleep loop's pose for a seamless crossfade
+    tilt = D(10) * _smooth(min(1.0, t * 1.4))
+    P.aim("head", (0, -sin(tilt), cos(tilt)))
+    lid = 1 - 0.90 * _smooth(t)
+    lid = max(0.07, lid - 0.35 * _dip(t, 0.32, 0.09) - 0.30 * _dip(t, 0.64, 0.09))
+    P.scale("eye_L", 1, 1, max(0.10, lid) if t > 0.97 else lid)
+    P.scale("eye_R", 1, 1, max(0.10, lid) if t > 0.97 else lid)
+    P.rot("chest", x=D(6 * _smooth(t)))
+    gill_wave(P, t, D(3) * (1 - 0.5 * t), 1, sweep=D(10 * _smooth(t)))
     for i, name in enumerate(TAIL):
         P.rot(name, x=D(2) * sin(2 * pi * t - i * 0.4))
 
@@ -700,6 +724,7 @@ CLIPS = [
     ("nod_R",     1.8, _nod_for("R"), False),   # turn head right, then nod yes
     ("tinkerbell", 4.24, _tinkerbell, False),
     ("celebrate", 1.6, _celebrate, False),
+    ("dozeoff",   2.4, _dozeoff,   False),  # drowsy transition into sleep
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
     # Phase 5 kitten squib clips
