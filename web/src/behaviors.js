@@ -51,6 +51,16 @@ const ZOOMIES_LAPS = 4;
 const ABSORBED_CURIOUS_GATE = 0.6;
 const ABSORBED_COOLDOWN_SEC = 180;
 const ABSORBED_STARE_SEC = 4.5;       // one dot can hold it motionless
+const HEAD_TILT_CURIOUS_GATE = 0.5;
+const HEAD_TILT_COOLDOWN_SEC = 150;
+const POUNCE_COOLDOWN_SEC = 90;
+const POUNCE_PLAYFUL_GATE = 0.55;
+const POUNCE_STALK_SEC = 0.8;         // stillness before pounce (timing rule 1)
+const ROLL_PLAYFUL_GATE = 0.8;
+const ROLL_COOLDOWN_SEC = 600;        // rare, high-trust
+const STARTLE_DELETES = 2;            // this many deletes...
+const STARTLE_WINDOW_SEC = 4;         // ...this close together = mass vanish
+const STARTLE_COOLDOWN_SEC = 60;
 const SIT_NEARBY_COOLDOWN_SEC = 300;
 const SIT_NEARBY_PLAYFUL_GATE = 0.5;  // affection follows shared energy
 const SIT_NEARBY_DURATION_SEC = 10;
@@ -412,6 +422,94 @@ export function makeBehaviors() {
         state.componentChurn.length = 0;   // consume the burst
         actor.emote('?');
         await actor.play('scratch');
+      },
+    },
+
+    // -------------------------------------------------- startle
+    // Sudden mass vanishing (2+ tiles deleted fast) -> jump-back, then an
+    // immediate curious "where did it go?" — recovery inside 2s (rule 4).
+    {
+      id: 'startle',
+      priority: 65,
+      cooldownSec: STARTLE_COOLDOWN_SEC,
+      preempts: true,                 // a startle that waits its turn isn't one
+      trigger(state, event) {
+        if (event.type !== 'component:delete') return false;
+        const t = now();
+        return state.componentDeletes.filter((x) => t - x < STARTLE_WINDOW_SEC)
+          .length >= STARTLE_DELETES;
+      },
+      async run(actor, state, ctx) {
+        await actor.play('startle');
+        await actor.play('head_tilt');            // ...where did it go?
+      },
+    },
+
+    // -------------------------------------------------- pounce-at-drag
+    // Something is MOVING (slider drag): stalk-freeze, then pounce toward
+    // it, overshoot and recover (clip), retreat. ignoreActivity — the
+    // moving thing IS student action; the pounce accompanies it.
+    {
+      id: 'pounce-at-drag',
+      priority: 28,
+      cooldownSec: POUNCE_COOLDOWN_SEC,
+      ignoreActivity: true,
+      trigger: (state, event) => event.type === 'slider:change'
+        && state.mood.playful > POUNCE_PLAYFUL_GATE,
+      async run(actor, state, ctx) {
+        const c = state.components.get(ctx.event?.detail?.id)
+          ?? [...state.components.values()].filter((k) => k.bounds).at(-1);
+        if (!c?.bounds) return;
+        const tx = c.bounds.x + c.bounds.w / 2;
+        const ty = c.bounds.y + c.bounds.h / 2;
+        actor.lookAt(tx, ty);
+        await ctx.sleep(POUNCE_STALK_SEC);        // the stalk-freeze is the setup
+        const here = actor.getPosition();
+        // close most of the distance fast, then the pounce clip does the leap
+        await actor.moveTo(tx + (here.x > tx ? 130 : -130), ty + 40,
+          { pixelsPerSecond: 700 });
+        await actor.play('pounce');
+        actor.clearGaze();
+        await actor.play('proud');                // rule 3: proud after anything
+      },
+    },
+
+    // -------------------------------------------------- head-tilt-investigate
+    // Wanders to a tile and considers it from two angles. Prefers tiles it
+    // hasn't investigated before.
+    {
+      id: 'head-tilt-investigate',
+      priority: 17,
+      cooldownSec: HEAD_TILT_COOLDOWN_SEC,
+      trigger: (state, event) => event.type === 'tick'
+        && state.mood.curious > HEAD_TILT_CURIOUS_GATE
+        && [...state.components.values()].some((c) => c.bounds),
+      async run(actor, state, ctx) {
+        const tiles = [...state.components.values()].filter((c) => c.bounds);
+        const fresh = tiles.filter((c) => !ctx.mem[`seen-${c.id}`]);
+        const c = ctx.pick(fresh.length ? fresh : tiles);
+        ctx.mem[`seen-${c.id}`] = true;
+        const { x, y, w, h } = c.bounds;
+        await actor.moveTo(x + w + BESIDE_TILE_PX, y + h / 2);
+        actor.lookAt(x + w / 2, y + h / 2);
+        await actor.play('head_tilt');
+        actor.clearGaze();
+      },
+    },
+
+    // -------------------------------------------------- roll-over
+    // Rare, high-trust: barrel roll in open water, then the proud beat.
+    {
+      id: 'roll-over',
+      priority: 8,
+      cooldownSec: ROLL_COOLDOWN_SEC,
+      trigger: (state, event) =>
+        event.type === 'tick' && state.mood.playful > ROLL_PLAYFUL_GATE,
+      async run(actor, state, ctx) {
+        const p = openWater(state);
+        await actor.moveTo(p.x, p.y);
+        await actor.play('roll');
+        await actor.play('proud');
       },
     },
 

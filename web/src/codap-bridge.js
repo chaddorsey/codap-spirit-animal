@@ -60,7 +60,8 @@ export class CodapBridge extends EventTarget {
     if (resource === 'component' || resource.startsWith('component[')) {
       const kind = { create: 'component:create', delete: 'component:delete',
                      move: 'component:move', resize: 'component:resize',
-                     attributeChange: 'component:attributeChange' }[op];
+                     attributeChange: 'component:attributeChange',
+                     'change slider value': 'slider:change' }[op];
       if (kind) this._emit(kind, { id: values?.id, type: values?.type, title: values?.title });
     } else if (resource.startsWith('dataContextChangeNotice')) {
       const context = resource.match(/\[(.*)\]/)?.[1];

@@ -66,6 +66,7 @@ export class BehaviorEngine {
                                       //         attrsAssigned, preexisting }
       dataContexts: new Map(),        // name -> { name, caseEvents, lastCasesAt }
       componentChurn: [],             // timestamps of recent create/delete events
+      componentDeletes: [],           // delete timestamps (startle watches these)
       selection: null,                // { context, count, at }
       drag: null,                     // { phase, attribute, position, at }
       lastActionAt: now(),
@@ -84,7 +85,7 @@ export class BehaviorEngine {
     if (bridge) {
       const types = ['component:create', 'component:delete', 'component:move',
         'component:resize', 'component:attributeChange', 'selection', 'drag',
-        'cases:change'];
+        'cases:change', 'slider:change'];
       for (const t of types) {
         bridge.addEventListener(t, (e) => this._onEvent(t, e.detail ?? {}, true));
       }
@@ -188,6 +189,10 @@ export class BehaviorEngine {
       s.componentChurn.push(now());
       if (s.componentChurn.length > 20) s.componentChurn.shift();
     }
+    if (type === 'component:delete') {
+      s.componentDeletes.push(now());               // startle watches these
+      if (s.componentDeletes.length > 10) s.componentDeletes.shift();
+    }
     if (type === 'component:create') {
       if (detail.id == null) detail.id = `sim-${++this._simSeq}`;
       s.components.set(detail.id, {
@@ -213,6 +218,9 @@ export class BehaviorEngine {
       s.selection = { ...detail, at: now() };
     } else if (type === 'drag') {
       s.drag = { ...detail, at: now() };
+    } else if (type === 'slider:change') {
+      const c = s.components.get(detail.id);
+      if (c) c.lastInteractionAt = now();
     } else if (type === 'cases:change') {
       const name = detail.context ?? 'unknown';
       const dc = s.dataContexts.get(name)
@@ -226,14 +234,25 @@ export class BehaviorEngine {
   }
 
   _evaluate(event) {
-    if (!this.enabled || this.state.active) return;
+    if (!this.enabled) return;
+    // one at a time — except a `preempts` behavior (startle) may displace a
+    // strictly lower-priority intervention: a startle that waits isn't one
+    const active = this.state.active;
+    const activePriority = active
+      ? (this.behaviors.find((b) => b.id === active.id)?.priority ?? Infinity)
+      : -Infinity;
     for (const b of this.behaviors) {          // highest priority first
+      if (active && !(b.preempts && b.priority > activePriority)) continue;
       const m = this._meta.get(b.id);
       if (now() - m.lastFiredAt < (b.cooldownSec ?? 0)) continue;
       let hit = false;
       try { hit = !!b.trigger(this.state, event, m.mem); }
       catch (err) { console.warn(`trigger ${b.id} threw`, err); }
-      if (hit) { this._fire(b, m, event); return; }
+      if (hit) {
+        if (this.state.active) this.cancelActive(`preempted by ${b.id}`);
+        this._fire(b, m, event);
+        return;
+      }
     }
   }
 
