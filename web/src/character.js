@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { EmoteBubble } from './emotes.js';
+import { EmoteBubble, ZzzPuffs } from './emotes.js';
 
 const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
 
@@ -28,8 +28,12 @@ export class Axolotl {
     // model origin is at mouth level; lift it so root sits at the visual
     // center and moveTo/setPosition center the character on their target
     const bbox = new THREE.Box3().setFromObject(this.model);
-    this.model.position.y = -(bbox.min.y + bbox.max.y) / 2;
+    this.centerY = -(bbox.min.y + bbox.max.y) / 2;
+    this.model.position.y = this.centerY;
     this.root.add(this.model);
+    this.bobAmp = 0;               // ambient bounce, fades out during sleep
+    this.sleepSeconds = 0;
+    this.nextZzzAt = 0;
     stage.scene.add(this.root);
 
     this.mixer = new THREE.AnimationMixer(this.model);
@@ -69,6 +73,7 @@ export class Axolotl {
     this.blinkAt = 2;
 
     this.emotes = new EmoteBubble(this.root);
+    this.zzz = new ZzzPuffs(this.root);
 
     this.mixer.addEventListener('finished', (e) => {
       if (e.action === this.oneShot && !this.holdingOneShot) this._endOneShot();
@@ -252,6 +257,19 @@ export class Axolotl {
       if (this.base !== this.actions.sleep) this.play('blink');
       this.blinkAt = this.clock + 1.8 + Math.random() * 3.5;
     }
+
+    // ambient bounce whenever awake; stills into sleep
+    const asleep = this.base === this.actions.sleep;
+    this.bobAmp += ((asleep ? 0 : 0.05) - this.bobAmp) * Math.min(1, dt * 1.5);
+    this.model.position.y = this.centerY + Math.sin(this.clock * 2.1) * this.bobAmp;
+
+    // occasional rising Zzz's once the doze has settled in
+    this.sleepSeconds = asleep ? this.sleepSeconds + dt : 0;
+    if (asleep && this.sleepSeconds > 8 && this.clock > this.nextZzzAt) {
+      this.zzz.spawn();
+      this.nextZzzAt = this.clock + 4.5 + Math.random() * 3;
+    }
+    this.zzz.update(dt, this.facing);
 
     this.emotes.update(dt, this.facing);
     this._gazePass(dt);

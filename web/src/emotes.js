@@ -111,3 +111,57 @@ export class EmoteBubble {
     this.group.rotation.z = Math.sin(this.time * 2.3) * 0.05;
   }
 }
+
+/**
+ * Sleepy Zzz's: spawns a staggered trio of small "z" glyphs above the head
+ * that rise, drift sideways, and fade out. Call spawn() occasionally while
+ * the character sleeps; update() every frame.
+ */
+export class ZzzPuffs {
+  constructor(parentGroup) {
+    this.group = new THREE.Group();
+    parentGroup.add(this.group);
+    this.puffs = [];
+  }
+
+  async spawn() {
+    const font = await loadFont();
+    for (let i = 0; i < 3; i++) {
+      const geo = new TextGeometry('z', {
+        font, size: 0.26 + i * 0.11, depth: 0.08, curveSegments: 6,
+        bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2,
+      });
+      geo.center();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x7d9bb8, emissive: 0x2c4a66, emissiveIntensity: 0.3,
+        roughness: 0.4, transparent: true, opacity: 0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.y = Math.PI / 2;                 // face the ortho camera
+      this.group.add(mesh);
+      this.puffs.push({ mesh, age: 0, delay: i * 0.5, life: 2.4, drift: 0.35 + i * 0.2 });
+    }
+  }
+
+  update(dt, facingYaw) {
+    this.group.rotation.y = -facingYaw;
+    for (const p of [...this.puffs]) {
+      p.age += dt;
+      const t = (p.age - p.delay) / p.life;
+      if (t < 0) { p.mesh.visible = false; continue; }
+      if (t >= 1) {
+        this.group.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        this.puffs.splice(this.puffs.indexOf(p), 1);
+        continue;
+      }
+      p.mesh.visible = true;
+      p.mesh.material.opacity = Math.sin(Math.PI * t) * 0.9;
+      p.mesh.position.set(0.2, 2.1 + t * 1.5, -(0.35 + p.drift * t));  // up + drift right
+      p.mesh.rotation.z = Math.sin(t * 5 + p.drift * 7) * 0.18;
+      const s = 0.8 + 0.4 * t;                       // grow slightly as they rise
+      p.mesh.scale.setScalar(s);
+    }
+  }
+}

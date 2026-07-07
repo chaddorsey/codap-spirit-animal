@@ -75,6 +75,11 @@
     "loop": false
   },
   {
+    "name": "tinkerbell",
+    "seconds": 2.6,
+    "loop": false
+  },
+  {
     "name": "celebrate",
     "seconds": 1.6,
     "loop": false

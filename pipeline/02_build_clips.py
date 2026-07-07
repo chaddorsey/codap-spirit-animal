@@ -9,7 +9,7 @@ clip name) so the glTF exporter emits them as separate animations.
 LAYERING RULES (runtime depends on these -- keep them when adding clips):
 - body clips (idle, swim, hop, ...) never key eye bones
 - eye clips (blink) key ONLY eye bones
-- only hop/celebrate/dance key root location/scale/rotation
+- only hop/celebrate/dance/tinkerbell key root location/scale/rotation
 - every clip keys from a zeroed pose; loops end exactly at start values
 
 Arms have a wrist hinge: arm_L/arm_R (upper) + hand_L/hand_R (outer third).
@@ -281,6 +281,43 @@ def _nod_for(side):
     return fn
 
 
+def _tinkerbell(t, P):
+    # airborne circle flourish (screen-plane loop, leaning into the turn),
+    # then settle with three diminishing bounces
+    if t < 0.58:
+        k = t / 0.58
+        e = k * k * (3 - 2 * k)                      # ease around the loop
+        ang = 2 * pi * e
+        # vertical circle in the screen plane, starting/ending at rest point
+        # (root local Z = screen horizontal; local X is the invisible depth axis)
+        P.loc("root", z=0.55 * sin(ang), y=0.55 * (1 - cos(ang)))
+        P.rot("spine", z=D(20) * sin(ang))           # bank into the motion
+        P.rot("chest", z=D(12) * sin(ang))
+        P.rot("head", z=D(-12) * sin(ang))
+        P.rot("arm_L", x=D(25), z=D(10) * sin(ang))  # arms trail like swim
+        P.rot("arm_R", x=D(-25), z=D(-10) * sin(ang))
+        gill_wave(P, t, D(13), 6, sweep=D(12))       # gills streaming
+        for i, name in enumerate(TAIL):
+            P.rot(name, x=D(13) * sin(4 * pi * k - i * 0.8))
+    else:
+        k = (t - 0.58) / 0.42
+        seg = min(2.999, k * 3)                      # three bounce segments
+        i = int(seg)
+        f = seg - i
+        h = (0.22, 0.11, 0.045)[i]
+        P.loc("root", x=0, y=h * sin(pi * f))
+        b = (0.9, 0.55, 0.28)[i] * max(0.0, cos(pi * f)) ** 2   # squash at contact
+        P.scale("root", 1 + 0.07 * b, 1 + 0.07 * b, 1 - 0.10 * b)
+        P.rot("spine", z=0)
+        P.rot("chest", z=0)
+        P.rot("head", z=0)
+        P.rot("arm_L", x=D(25 * (1 - k)))
+        P.rot("arm_R", x=D(-25 * (1 - k)))
+        gill_wave(P, t, D(10) * (1 - k), 3)
+        for j, name in enumerate(TAIL):
+            P.rot(name, x=D(8 * (1 - k)) * sin(3 * pi * k - j * 0.6))
+
+
 def _celebrate(t, P):
     spin = 2 * pi * min(1.0, t * 1.4)                # one full spin, then bounce
     P.rot("root", y=spin)
@@ -334,6 +371,7 @@ CLIPS = [
     ("nod",       0.9, _nod,       False),
     ("nod_L",     1.4, _nod_for("L"), False),   # turn head left, then nod yes
     ("nod_R",     1.4, _nod_for("R"), False),   # turn head right, then nod yes
+    ("tinkerbell", 2.6, _tinkerbell, False),
     ("celebrate", 1.6, _celebrate, False),
     ("sleep",     4.0, _sleep,     True),
     ("droop",     1.5, _droop,     False),   # hold last frame at runtime
