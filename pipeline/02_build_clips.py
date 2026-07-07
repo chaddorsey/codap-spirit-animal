@@ -337,9 +337,15 @@ _TK_PX = (_TK_C[0] + _TK_R * cos(_TK_AX) - _TK_L * _TK_VX[0],   # exit pivot
 _TK_TAIL = 1.38                               # tail tip below pivot, rest pose
 _TK_HEADTOP = 2.0                             # head top above pivot, rest pose
 _TK_HT0 = _TK_P2[1] + _TK_HEADTOP * cos(_TK_ANG)   # head-top height at entry
-# apex: tail (TAIL below pivot along the tilted body axis) reaches _TK_HT0
-_TK_S = (_TK_HT0 + _TK_TAIL * _TK_VX[1] - _TK_PX[1]) / _TK_VX[1]
-_TK_APEX = (_TK_PX[0] + _TK_VX[0] * _TK_S, _TK_PX[1] + _TK_VX[1] * _TK_S)
+# settle arc: a ballistic mini-arc from the circle exit to the bob point —
+# constant horizontal drift, parabolic height fitted so the apex puts the
+# tail (hanging below an upright body) at the circle-entry head-top height
+_TK_YAPEX = _TK_HT0 + _TK_TAIL
+_d = _TK_P2[1] - _TK_PX[1]
+_m = _d + 2 * (_TK_PX[1] - _TK_YAPEX)
+_TK_ARC_A = _m - math.sqrt(_m * _m - _d * _d)      # parabola y = y0 + Bk + Ak^2
+_TK_ARC_B = _d - _TK_ARC_A
+_TK_KAPEX = -_TK_ARC_B / (2 * _TK_ARC_A)           # apex time within the arc
 
 
 def _smooth(k):
@@ -362,41 +368,45 @@ def _tinkerbell(t, P):
         x = _TK_P2[0] * e
         y = -0.20 + (_TK_P2[1] + 0.20) * e
         roll = _TK_ANG * e
-    elif t < T1:                              # prep: quick bob at the top
-        k = (t - 0.24) / (T1 - 0.24)
+    elif t < 0.305:                           # prep: quick bob (half-length pause)
+        k = (t - 0.24) / (0.305 - 0.24)
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
+    elif t < T1:                              # prep: spring wind-up — compress
+        k = (t - 0.305) / (T1 - 0.305)        # back along the launch tangent
+        d = 0.13 * _smooth(k)
+        x = _TK_P2[0] + sin(_TK_ANG) * d
+        y = _TK_P2[1] - cos(_TK_ANG) * d
+        roll = _TK_ANG - D(5) * _smooth(k)    # slight extra back-lean
     elif t < T2:                              # the circle: head center rides it
-        kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees;
-        k = kr * kr * (2 - kr)                # ease-in only — exits at speed
+        kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees
+        # springy release: fast attack, gradual slowdown over the last
+        # quarter-turn, small residual speed into the settle arc
+        k = (1 - (1 - kr) ** 2.2) * 0.92 + 0.08 * kr
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
         hy = _TK_C[1] + _TK_R * sin(a)
         x = hx - _TK_L * sin(a)               # pivot trails head along velocity
         y = hy + _TK_L * cos(a)
+        rel = max(0.0, 1 - k / 0.05)          # spring compression evaporates
+        x += sin(_TK_ANG) * 0.13 * rel
+        y -= cos(_TK_ANG) * 0.13 * rel
         roll = a - pi                         # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
-    elif t < 0.78:                            # settle: overshoot up the tangent,
-        k = (t - T2) / (0.78 - T2)            # easing to a stop at the apex
-        e = 1 - (1 - k) ** 2
-        x = _TK_PX[0] + _TK_VX[0] * _TK_S * e
-        y = _TK_PX[1] + _TK_VX[1] * _TK_S * e
-        roll = _TK_AX - pi                    # keep the departure lean
-    elif t < 0.90:                            # settle: pivot upright, drop, and
-        k = (t - 0.78) / 0.12                 # decelerate into a soft arrival
-        e = k * k * (3 - 2 * k)               # ease in AND out — no slam
-        x = _TK_APEX[0] + (_TK_P2[0] - _TK_APEX[0]) * e   # down to the BOB POINT
-        y = _TK_APEX[1] + (_TK_P2[1] - _TK_APEX[1]) * e
-        upr = min(1.0, k / 0.55)              # upright by ~halfway down
+    elif t < 0.90:                            # settle: ballistic mini-arc from
+        k = (t - T2) / (0.90 - T2)            # circle exit up over the apex and
+        x = _TK_PX[0] + (_TK_P2[0] - _TK_PX[0]) * k     # down to the bob point
+        y = _TK_PX[1] + _TK_ARC_B * k + _TK_ARC_A * k * k
+        upr = min(1.0, k / _TK_KAPEX)         # upright by the apex
         roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
-    else:                                     # settle: damped bobs into rest,
-        k = (t - 0.90) / 0.10                 # in place at the bob point
+    else:                                     # cheerful damped bobs into rest
+        k = (t - 0.90) / 0.10
         x, y = _TK_P2
-        y += -0.11 * sin(5 * pi * k) * (1 - k) ** 1.3
-        b = max(0.0, -sin(5 * pi * k)) * (1 - k) * 0.5
-        P.scale("root", 1 + 0.04 * b, 1 + 0.04 * b, 1 - 0.06 * b)
+        y += -0.15 * sin(4.5 * pi * k) * (1 - k) ** 1.4
+        b = max(0.0, -sin(4.5 * pi * k)) * (1 - k) * 0.6
+        P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
         roll = -2 * pi                        # upright (identity)
     # the clip's rest frame is the BOB POINT (where the revolution begins):
     # she settles there, elevated, and the runtime shifts her screen anchor
