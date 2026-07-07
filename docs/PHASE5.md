@@ -68,9 +68,9 @@ batting something — and can name its mood without any UI telling them.
      centroid from values alone; if even that fails, descope to
      BEHAVIORS.md as blocked and keep the batting clip for tile-mischief.
 
-## Measurable end state — ✅ COMPLETE 2026-07-07 (CHARACTER.md review open)
+## Measurable end state — ✅ COMPLETE 2026-07-07
 
-- [ ] `CHARACTER.md` reviewed by Chad (name slot also open).
+- [x] `CHARACTER.md` reviewed by Chad — she is **Dot**; wise-kitten register added at his direction.
 - [x] selfTest passes — grew 18 → **32/32** (mood drift, wake bumps,
       mood-gate block/fire, pick weights, per-behavior force-fire).
 - [x] Every squib force-fireable + simulate-able; verified via mood-crank
