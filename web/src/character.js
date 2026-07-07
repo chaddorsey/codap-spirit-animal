@@ -55,6 +55,37 @@ export class Axolotl {
       }
     }
 
+    // The exporter bakes rest-pose tracks for EVERY bone into EVERY clip
+    // (blink ships 69 tracks), which voids the channel-layering contract:
+    // clips fight each other on bones they don't animate — a full-weight
+    // blink momentarily drags a mid-roll tinkerbell toward rest pose, a
+    // visible ~180-degree flip. Strip tracks that are constant at the bind
+    // value; keep constant-but-posed tracks (e.g. sleep's closed eyes).
+    for (const clip of gltf.animations) {
+      clip.tracks = clip.tracks.filter(tr => {
+        const stride = tr.getValueSize();
+        const v = tr.values;
+        for (let i = stride; i < v.length; i++) {
+          if (Math.abs(v[i] - v[i % stride]) > 1e-4) return true;   // animated
+        }
+        const dot = tr.name.lastIndexOf('.');
+        const node = this.model.getObjectByName(tr.name.slice(0, dot));
+        if (!node) return false;
+        const prop = tr.name.slice(dot + 1);
+        if (prop === 'quaternion') {
+          const d = v[0] * node.quaternion.x + v[1] * node.quaternion.y +
+                    v[2] * node.quaternion.z + v[3] * node.quaternion.w;
+          return Math.abs(d) < 0.9999;                // constant but not rest
+        }
+        const bind = (prop === 'position' ? node.position : node.scale).toArray();
+        for (let i = 0; i < stride; i++) {
+          if (Math.abs(v[i] - bind[i]) > 1e-3) return true;
+        }
+        return false;                                 // constant at rest: drop
+      });
+      clip.resetDuration();
+    }
+
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
     this.meta = {};

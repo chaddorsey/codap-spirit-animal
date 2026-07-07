@@ -235,6 +235,12 @@ export class BehaviorEngine {
 
   _evaluate(event) {
     if (!this.enabled) return;
+    // respect externally-commanded animations (debug buttons, direct API
+    // use): if the actor is mid-one-shot or mid-move that the engine did
+    // not start, hold off firing interventions — interrupting an external
+    // clip crossfades from an arbitrary mid-pose (e.g. tinkerbell's
+    // inverted mid-roll snaps ~180 degrees back to idle)
+    if (!this.state.active && (this.actor.oneShot || this.actor.motion)) return;
     // one at a time — except a `preempts` behavior (startle) may displace a
     // strictly lower-priority intervention: a startle that waits isn't one
     const active = this.state.active;
