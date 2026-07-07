@@ -350,23 +350,25 @@ def _smooth(k):
 def _tinkerbell(t, P):
     x = y = 0.0                               # position, std screen frame
     roll = 0.0                                # lean, radians; + = lean left
-    if t < 0.07:                              # dip to prep takeoff
-        k = t / 0.07
+    # three equal beats: PREP [0, 1/3) -- CIRCLE [1/3, 2/3) -- SETTLE [2/3, 1]
+    T1, T2 = 1 / 3, 2 / 3
+    if t < 0.06:                              # prep: dip to load the takeoff
+        k = t / 0.06
         y = -0.20 * _smooth(k)
         b = sin(pi * k)
         P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
-    elif t < 0.24:                            # ascend the 15deg-left line
-        e = _smooth((t - 0.07) / 0.17)
+    elif t < 0.24:                            # prep: ascend the 15deg-left line
+        e = _smooth((t - 0.06) / 0.18)
         x = _TK_P2[0] * e
         y = -0.20 + (_TK_P2[1] + 0.20) * e
         roll = _TK_ANG * e
-    elif t < 0.33:                            # quick bob at the top
-        k = (t - 0.24) / 0.09
+    elif t < T1:                              # prep: quick bob at the top
+        k = (t - 0.24) / (T1 - 0.24)
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
-    elif t < 0.70:                            # the circle: head center rides it
-        kr = (t - 0.33) / 0.37                # clockwise, 355 degrees;
+    elif t < T2:                              # the circle: head center rides it
+        kr = (t - T1) / (T2 - T1)             # clockwise, 355 degrees;
         k = kr * kr * (2 - kr)                # ease-in only — exits at speed
         a = _TK_A0 - _TK_SWEEP * k
         hx = _TK_C[0] + _TK_R * cos(a)
@@ -376,28 +378,24 @@ def _tinkerbell(t, P):
         roll = a - pi                         # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
-    elif t < 0.82:                            # overshoot: straight up the tangent,
-        k = (t - 0.70) / 0.12                 # easing to a stop at the apex
+    elif t < 0.78:                            # settle: overshoot up the tangent,
+        k = (t - T2) / (0.78 - T2)            # easing to a stop at the apex
         e = 1 - (1 - k) ** 2
         x = _TK_PX[0] + _TK_VX[0] * _TK_S * e
         y = _TK_PX[1] + _TK_VX[1] * _TK_S * e
         roll = _TK_AX - pi                    # keep the departure lean
-    elif t < 0.93:                            # pivot upright + ease into the drop
-        k = (t - 0.82) / 0.11
-        e = k * k                             # ease-in — gathers speed downward
+    elif t < 0.90:                            # settle: pivot upright, drop, and
+        k = (t - 0.78) / 0.12                 # decelerate into a soft arrival
+        e = k * k * (3 - 2 * k)               # ease in AND out — no slam
         x = _TK_APEX[0] * (1 - e)
         y = _TK_APEX[1] * (1 - e)
         upr = min(1.0, k / 0.55)              # upright by ~halfway down
         roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
-    else:                                     # decreasing bobs into sitting
-        k = (t - 0.93) / 0.07
-        seg = min(2.999, k * 3)
-        i = int(seg)
-        f = seg - i
-        amp = (0.26, 0.12, 0.05)[i]
-        y = -amp * sin(pi * f)
-        b = (0.9, 0.5, 0.25)[i] * sin(pi * f)
-        P.scale("root", 1 + 0.06 * b, 1 + 0.06 * b, 1 - 0.09 * b)
+    else:                                     # settle: damped bobs into rest,
+        k = (t - 0.90) / 0.10                 # in place at the bob point
+        y = -0.11 * sin(5 * pi * k) * (1 - k) ** 1.3
+        b = max(0.0, -sin(5 * pi * k)) * (1 - k) * 0.5
+        P.scale("root", 1 + 0.04 * b, 1 + 0.04 * b, 1 - 0.06 * b)
         roll = -2 * pi                        # upright (identity)
     # the clip's rest frame is the BOB POINT (where the revolution begins):
     # she settles there, elevated, and the runtime shifts her screen anchor
