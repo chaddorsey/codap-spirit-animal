@@ -135,6 +135,18 @@ const sims = {
 };
 document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.dataset.sim]; });
 
+// character clip test buttons (bypass the engine; loops toggle back to idle)
+document.querySelectorAll('[data-clip]').forEach(b => {
+  b.onclick = () => {
+    const name = b.dataset.clip;
+    if (axo.meta[name]?.loop) {
+      axo.setBase(axo.base === axo.actions[name] ? 'idle' : name);
+    } else {
+      axo.play(name);
+    }
+  };
+});
+
 // live state readout
 setInterval(() => {
   const s = engine.state;

@@ -167,30 +167,35 @@ for side, sign in (("L", 1), ("R", -1)):
     eye_centers[side] = c + delta
     print(f"eye_{side} leveled by ({delta.y:+.3f}, {delta.z:+.3f})")
 
-# reseat the glints (sub-pupils): from the straight-on overlay camera they sit
-# low and drift off the pupil. Pull each glint onto the eyeball sphere surface,
-# raised and front-facing, keeping its authored side (inner/outer) placement.
+# reseat the glints (sub-pupils) at CANONICAL catchlight positions, identical
+# for both eyes (consistent light source, screen upper-left): the larger glint
+# upper-left of pupil center, the smaller lower-right, both fully inside the
+# pupil disc and seated just proud of the eyeball sphere. Ignores the authored
+# offsets entirely — they were tuned for the file's angled camera and read as
+# disjointed from the overlay's straight-on view.
+# (Blender axes: screen-left = -y, up = +z, toward camera = +x.)
+GLINT_SPOTS = [                              # (lateral dir y, z, lateral dist, seat)
+    ((-0.55, 0.75), 0.38, 1.05),             # big: upper-left
+    ((0.45, -0.60), 0.50, 1.03),             # small: lower-right
+]
 for side, group in eye_groups.items():
     islands = [(comp, centroid(me, comp)) for comp, _ in group]
     eyeball = max(islands, key=lambda g: len(g[0]))
     E = eyeball[1]
     r = max((me.vertices[i].co - E).length for i in eyeball[0])
-    for comp, c in islands:
-        if comp is eyeball[0]:
-            continue
-        d = c - E
-        d.z += 0.20 * r                      # slight raise toward catchlight spot
-        lat = (d.y ** 2 + d.z ** 2) ** 0.5   # keep within the pupil disc face
-        max_lat = 0.52 * r
-        if lat > max_lat:
-            d.y *= max_lat / lat
-            d.z *= max_lat / lat
-        seat = 1.06 * r                      # just proud of the sphere, facing camera
-        d.x = max(seat ** 2 - d.y ** 2 - d.z ** 2, 0) ** 0.5
+    glints = [g for g in islands if g[0] is not eyeball[0]]
+    # larger glint (by bounding radius) gets the big catchlight spot
+    def bradius(g):
+        return max((me.vertices[i].co - g[1]).length for i in g[0])
+    glints.sort(key=bradius, reverse=True)
+    for (comp, c), ((ly, lz), lat_k, seat_k) in zip(glints, GLINT_SPOTS):
+        lat = Vector((0, ly, lz)).normalized() * (lat_k * r)
+        d = Vector((max((seat_k * r) ** 2 - lat.y ** 2 - lat.z ** 2, 0) ** 0.5,
+                    lat.y, lat.z))
         shift = (E + d) - c
         for i in comp:
             me.vertices[i].co += shift
-        print(f"glint {side} ({len(comp)}v) shifted ({shift.x:+.3f},{shift.y:+.3f},{shift.z:+.3f})")
+        print(f"glint {side} ({len(comp)}v) -> canonical ({shift.x:+.3f},{shift.y:+.3f},{shift.z:+.3f})")
 
 # lengthen arms and legs ~40% along the limb axis, anchored at the body end,
 # so gestures read clearly. Cross-section is untouched (still chubby/cute).

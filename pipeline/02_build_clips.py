@@ -47,18 +47,23 @@ class Poser:
         pb.rotation_quaternion = Euler((x, y, z), 'XYZ').to_quaternion()
         self.touched.setdefault(bone, set()).add("rotation_quaternion")
 
-    def aim(self, bone, direction, blend=1.0):
+    def aim(self, bone, direction, blend=1.0, twist=0.0):
         """Rotate a bone so it points along `direction` in armature space
         (+X = character front, +Y = character's left, +Z = up).
         blend 0..1 slerps from rest toward the aim — use for ease-in/out.
-        Assumes ancestors are near rest; fine for limb gestures."""
+        twist (radians) spins the bone about its own axis on top of the aim
+        (e.g. turning the head left/right, since the head bone points up).
+        Assumes ancestors are near rest; fine for limb/head gestures."""
         pb = rig.pose.bones[bone]
         pb.rotation_mode = 'QUATERNION'
         rest3 = pb.bone.matrix_local.to_3x3()
         y_rest = rest3 @ Vector((0, 1, 0))           # bone axis at rest
         q = y_rest.rotation_difference(Vector(direction).normalized())
         local = (rest3.inverted() @ q.to_matrix() @ rest3).to_quaternion()
-        pb.rotation_quaternion = Quaternion().slerp(local, max(0.0, min(1.0, blend)))
+        local = Quaternion().slerp(local, max(0.0, min(1.0, blend)))
+        if twist:
+            local = local @ Quaternion(Vector((0, 1, 0)), twist)
+        pb.rotation_quaternion = local
         self.touched.setdefault(bone, set()).add("rotation_quaternion")
 
     def loc(self, bone, x=0.0, y=0.0, z=0.0):
@@ -264,22 +269,27 @@ def _curious(t, P):
         P.rot(name, x=D(5 * k) * sin(2 * pi * t - i * 0.5))
 
 
-# head bone axes (verified in the runtime): local X = yaw ("no" turn),
-# local Y = pitch ("yes" nod, chin drops), local Z = roll (ear-to-shoulder tilt)
+# Nods are authored with aim(): the head bone points straight up, so a true
+# "yes" nod = tipping the bone axis toward the body's front (+X) and back to
+# vertical. Side variants add twist (spin about the bone's own axis) to face
+# a viewing angle first — axis-guessing-proof, unlike raw euler channels.
 def _nod(t, P):
-    P.rot("head", y=D(14) * sin(4 * pi * min(t, 0.9) / 0.9) * (1 - t * 0.3))
+    # two forward tips, chin toward chest, returning to vertical
+    env = min(max(t / 0.9, 0), 1)
+    a = D(22) * abs(sin(2 * pi * env)) * (1 - 0.25 * env)
+    P.aim("head", (sin(a), 0, cos(a)))
     gill_wave(P, t, D(4), 2)
 
 
-# nod_L / nod_R: yaw the head ~30 deg to the side (local X), hold, then nod
-# "yes" (pitch about local Y) twice, then return to center
+# nod_L / nod_R: twist the head ~35 deg toward a side, hold, tip forward
+# twice ("yes"), untwist
 def _nod_for(side):
     s = 1 if side == "L" else -1
     def fn(t, P):
         turn = min(1.0, t * 4, (1 - t) * 4)          # turn in, hold, return
         nod_env = min(max((t - 0.25) / 0.55, 0), 1)
-        nod = sin(4 * pi * nod_env)                  # two yes-nods
-        P.rot("head", x=D(s * 30) * turn, y=D(16) * nod)
+        a = D(24) * abs(sin(2 * pi * nod_env))       # two forward tips
+        P.aim("head", (sin(a), 0, cos(a)), twist=D(35 * s) * turn)
         gill_wave(P, t, D(4), 2)
     return fn
 
