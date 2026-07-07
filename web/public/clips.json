@@ -137,5 +137,15 @@
     "name": "bat_R",
     "seconds": 1.1,
     "loop": false
+  },
+  {
+    "name": "perch",
+    "seconds": 3.5,
+    "loop": true
+  },
+  {
+    "name": "kilroy",
+    "seconds": 1.6,
+    "loop": false
   }
 ]

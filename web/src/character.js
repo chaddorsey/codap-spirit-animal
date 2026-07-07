@@ -199,6 +199,7 @@ export class Axolotl {
     if (this.oneShot) this._endOneShot(fade);
     this.clearGaze();
     this.clearEmote();
+    this.clearClip();          // never leave the body half-hidden (Phase 6)
     this.setBase('idle', fade);
   }
 
@@ -249,6 +250,48 @@ export class Axolotl {
   /** Spawn a visual double of a plotted point at screen (px,py) — see
    *  props.js. (Additive, Phase 5 — bat-a-point mischief.) */
   spawnDot(px, py, opts) { return new PointDouble(this.stage, px, py, opts); }
+
+  // ------------------------------------------------------------ clipping
+  // "Behind a tile" is faked with one clipping plane at the tile's edge:
+  // the overlay always renders in front of the iframe, so we hide the part
+  // of the body that should be occluded. (Additive, Phase 6 — terrain.)
+  // Stage mapping: screen up == world +Y, screen right == world -Z.
+
+  _clipPlane() {
+    if (!this._plane) {
+      this._plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      this._clipMats = new Set();
+      this.model.traverse((o) => { if (o.material) this._clipMats.add(o.material); });
+      this.stage.renderer.localClippingEnabled = true;
+    }
+    return this._plane;
+  }
+
+  _applyClip(on) {
+    this._clipPlane();
+    for (const m of this._clipMats) m.clippingPlanes = on ? [this._plane] : null;
+  }
+
+  /** Hide the body below (or above) screen row `py` — the Kilroy edge. */
+  clipAtScreenY(py, { keepAbove = true } = {}) {
+    const wy = this.stage.worldFromScreen(0, py).y;
+    const p = this._clipPlane();
+    p.normal.set(0, keepAbove ? 1 : -1, 0);
+    p.constant = keepAbove ? -wy : wy;
+    this._applyClip(true);
+  }
+
+  /** Hide the body beyond screen column `px` — the side-peek edge. */
+  clipAtScreenX(px, { keepLeft = true } = {}) {
+    const wz = this.stage.worldFromScreen(px, 0).z;
+    const p = this._clipPlane();
+    // keepLeft: visible where screen-x < px, i.e. world z > wz
+    p.normal.set(0, 0, keepLeft ? 1 : -1);
+    p.constant = keepLeft ? -wz : wz;
+    this._applyClip(true);
+  }
+
+  clearClip() { if (this._plane) this._applyClip(false); }
 
   // ------------------------------------------------------------ emotes
   /** Show '?', '!', or '?!' bobbing above the head. duration 0 = sticky. */

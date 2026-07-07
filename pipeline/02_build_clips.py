@@ -581,6 +581,42 @@ def _celebrate(t, P):
         P.rot(name, x=D(10) * sin(4 * pi * t - i * 0.8))
 
 
+# --- Phase 6 terrain clips -------------------------------------------------
+
+def _perch(t, P):
+    # sitting on a ledge: legs tucked forward, tail curled to one side,
+    # gentle hunch, slow contented gill sway. Loopable.
+    breathe = sin(2 * pi * t)
+    P.rot("leg_L", x=D(70))                          # legs tucked up
+    P.rot("leg_R", x=D(70))
+    P.rot("spine", x=D(6))                           # gentle hunch
+    P.rot("chest", x=D(4 + 1.5 * breathe))
+    P.rot("head", x=D(-6), z=D(3) * sin(2 * pi * t + 0.7))  # looking about
+    P.scale("chest", 1 + 0.02 * breathe, 1 + 0.02 * breathe, 1 + 0.03 * breathe)
+    P.rot("arm_L", x=D(25))                          # paws rested forward
+    P.rot("arm_R", x=D(-25))
+    gill_wave(P, t, D(4), 1)                         # slow, contented
+    for i, name in enumerate(TAIL):                  # tail curled to the side
+        P.rot(name, z=D(18), x=D(2) * sin(2 * pi * t - i * 0.4))
+
+
+def _kilroy(t, P):
+    # the over-the-wall pose: paws up gripping the ledge, chin just above
+    # it, eyes doing all the work. Eases in, then holds (runtime hold:true).
+    e = _smooth(min(1.0, t * 2.5))
+    P.aim("arm_L", (0.72, 0.40, 0.56), blend=e)      # paws raised to the ledge
+    P.aim("arm_R", (0.72, -0.40, 0.56), blend=e)
+    P.aim("hand_L", (0.85, 0.20, -0.30), blend=e)    # fingers hooked over
+    P.aim("hand_R", (0.85, -0.20, -0.30), blend=e)
+    P.rot("head", x=D(4 * e))                        # chin tucked to the edge
+    P.rot("chest", x=D(6 * e))
+    wob = sin(4 * pi * t) * (1 - 0.5 * e)
+    P.rot("spine", z=D(2 * wob))                     # tiny effortful sway
+    gill_wave(P, t, D(6), 2)
+    for i, name in enumerate(TAIL):
+        P.rot(name, x=D(4) * sin(2 * pi * t - i * 0.5))
+
+
 def _sleep(t, P):
     breathe = sin(2 * pi * t)                        # loopable slow breath
     P.rot("head", x=D(18 + 2 * breathe))
@@ -632,6 +668,9 @@ CLIPS = [
     ("proud",     1.2, _proud,     False),
     ("bat_L",     1.1, _bat_for("L"), False),
     ("bat_R",     1.1, _bat_for("R"), False),
+    # Phase 6 terrain clips
+    ("perch",     3.5, _perch,     True),
+    ("kilroy",    1.6, _kilroy,    False),   # hold last frame at runtime
 ]
 
 for name, seconds, fn, loop in CLIPS:
