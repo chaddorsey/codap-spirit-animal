@@ -305,15 +305,22 @@ def _nod_for(side):
 #
 # Worked in standard screen frame (x=right, y=up), converted to root-bone
 # local coords at the end (root loc z = screen-LEFT, loc y = up, rot x =
-# screen-plane roll).
+# screen-plane roll, positive = counterclockwise/lean-left).
+#
+# The HEAD CENTER traces the circle (counterclockwise, 1.75 BL diameter);
+# the body hangs tangent behind it, so the root pivot trails the head along
+# the tangent by the pivot->head distance. With position angle a on the
+# circle, the tangent (ccw) is (-sin a, cos a), the body roll equals a, and
+# pivot = head - L * tangent.
 _TK_BL = 3.0                                  # one body length, armature units
-_TK_R = 0.75 * _TK_BL                         # circle radius (1.5 BL diameter)
+_TK_L = 1.55                                  # root pivot -> head center distance
+_TK_R = 0.875 * _TK_BL                        # radius (1.75 BL diameter)
 _TK_ANG = D(15)
-_TK_U = (-sin(_TK_ANG), cos(_TK_ANG))         # ascent dir, up + 15deg left
-_TK_P2 = (_TK_U[0] * _TK_BL, _TK_U[1] * _TK_BL)
-_TK_C = (_TK_P2[0] + _TK_R * cos(_TK_ANG),    # center: her right, perp to body line
-         _TK_P2[1] + _TK_R * sin(_TK_ANG))
-_TK_TH0 = math.atan2(_TK_P2[1] - _TK_C[1], _TK_P2[0] - _TK_C[0])
+_TK_P2 = (-sin(_TK_ANG) * _TK_BL, cos(_TK_ANG) * _TK_BL)   # pivot after ascent
+_TK_H0 = (_TK_P2[0] - _TK_L * sin(_TK_ANG),   # head center at circle entry
+          _TK_P2[1] + _TK_L * cos(_TK_ANG))
+_TK_C = (_TK_H0[0] - _TK_R * cos(_TK_ANG),    # circle center (to her left, ccw)
+         _TK_H0[1] - _TK_R * sin(_TK_ANG))
 
 
 def _smooth(k):
@@ -339,19 +346,21 @@ def _tinkerbell(t, P):
         x, y = _TK_P2
         y += -0.12 * sin(pi * k)
         roll = _TK_ANG
-    elif t < 0.82:                            # the circle (clockwise, full turn)
-        k = _smooth((t - 0.33) / 0.49)
-        th = _TK_TH0 - 2 * pi * k
-        x = _TK_C[0] + _TK_R * cos(th)
-        y = _TK_C[1] + _TK_R * sin(th)
-        roll = _TK_ANG + 2 * pi * k           # body tracks the path tangent
+    elif t < 0.82:                            # the circle: head center rides it
+        k = _smooth((t - 0.33) / 0.49)        # counterclockwise, one full turn
+        a = _TK_ANG + 2 * pi * k              # position angle == body roll
+        hx = _TK_C[0] + _TK_R * cos(a)
+        hy = _TK_C[1] + _TK_R * sin(a)
+        x = hx + _TK_L * sin(a)               # pivot trails head along tangent
+        y = hy - _TK_L * cos(a)
+        roll = a                              # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
     elif t < 0.92:                            # descend home along the body line
         e = _smooth((t - 0.82) / 0.10)
         x = _TK_P2[0] * (1 - e)
         y = _TK_P2[1] * (1 - e)
-        roll = _TK_ANG + 2 * pi - _TK_ANG * e   # ~upright, unwinding the lean
+        roll = 2 * pi + _TK_ANG * (1 - e)     # ~upright, unwinding the lean
     else:                                     # big landing bob + settling bobs
         k = (t - 0.92) / 0.08
         seg = min(1.999, k * 2)
