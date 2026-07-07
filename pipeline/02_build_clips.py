@@ -360,7 +360,7 @@ def _tinkerbell(t, P):
     T1, T2 = 1 / 3, 2 / 3
     if t < 0.06:                              # prep: dip to load the takeoff
         k = t / 0.06
-        y = -0.20 * _smooth(k)
+        y = -0.30 * _smooth(k)
         b = sin(pi * k)
         P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
     elif t < 0.24:                            # prep: SWOOP up onto the shelf —
@@ -368,18 +368,18 @@ def _tinkerbell(t, P):
         b1 = (0.55, 0.55)                     # up-left; bezier control point
         u = 1 - e
         x = 2 * u * e * b1[0] + e * e * _TK_P2[0]
-        y = u * u * -0.20 + 2 * u * e * b1[1] + e * e * _TK_P2[1]
+        y = u * u * -0.30 + 2 * u * e * b1[1] + e * e * _TK_P2[1]
         tx = 2 * u * b1[0] + 2 * e * (_TK_P2[0] - b1[0])
-        ty = 2 * u * (b1[1] + 0.20) + 2 * e * (_TK_P2[1] - b1[1])
+        ty = 2 * u * (b1[1] + 0.30) + 2 * e * (_TK_P2[1] - b1[1])
         lean = math.atan2(-tx, ty)            # lean into the travel direction,
-        roll = lean * 0.6 * (1 - e) + _TK_ANG * e   # settling on the shelf lean
-    elif t < 0.272:                           # prep: brief bob on the "shelf"
-        k = (t - 0.24) / (0.272 - 0.24)
+        roll = lean * 0.45 * (4 * e * u) + _TK_ANG * e   # no tilt at launch/landing
+    elif t < 0.30:                            # prep: settle onto the padded shelf
+        k = (t - 0.24) / (0.30 - 0.24)        # compress, small rebound, rest
         x, y = _TK_P2
-        y += -0.12 * sin(pi * k)
+        y += -0.17 * sin(2 * pi * k) * (1 - 0.55 * k)
         roll = _TK_ANG
     elif t < T1:                              # prep: spring wind-up — compress
-        k = (t - 0.272) / (T1 - 0.272)        # back along the launch tangent
+        k = (t - 0.30) / (T1 - 0.30)        # back along the launch tangent
         d = 0.13 * _smooth(k)
         x = _TK_P2[0] + sin(_TK_ANG) * d
         y = _TK_P2[1] - cos(_TK_ANG) * d
@@ -400,18 +400,21 @@ def _tinkerbell(t, P):
         roll = a - pi                         # body tangent to the path
         for i, name in enumerate(TAIL):       # tail whips, trailing the arc
             P.rot(name, x=D(16) * sin(4 * pi * k - i * 1.0))
-    elif t < 0.90:                            # settle: ballistic mini-arc from
-        k = (t - T2) / (0.90 - T2)            # circle exit up over the apex and
+    elif t < 0.86:                            # settle: ballistic mini-arc from
+        k = (t - T2) / (0.86 - T2)            # circle exit up over the apex and
         k = 1 - (1 - k) ** 2                  # rapid ease-out once off the circle
         x = _TK_PX[0] + (_TK_P2[0] - _TK_PX[0]) * k     # down to the bob point
         y = _TK_PX[1] + _TK_ARC_B * k + _TK_ARC_A * k * k
         upr = min(1.0, k / _TK_KAPEX)         # upright by the apex
         roll = (_TK_AX - pi) + (-2 * pi - (_TK_AX - pi)) * upr
-    else:                                     # cheerful damped bobs into rest
-        k = (t - 0.90) / 0.10
+    else:                                     # three descending bounces to rest:
+        k = (t - 0.86) / 0.14                 # 0.2 BL, then gently damping
         x, y = _TK_P2
-        y += -0.15 * sin(4.5 * pi * k) * (1 - k) ** 1.4
-        b = max(0.0, -sin(4.5 * pi * k)) * (1 - k) * 0.6
+        seg = min(2.999, k * 3)
+        i = int(seg)
+        f = seg - i
+        y += (0.60, 0.34, 0.16)[i] * sin(pi * f)
+        b = (0.5, 0.3, 0.15)[i] * max(0.0, cos(pi * f)) ** 2   # contact squash
         P.scale("root", 1 + 0.05 * b, 1 + 0.05 * b, 1 - 0.07 * b)
         roll = -2 * pi                        # upright (identity)
     # the clip's rest frame is the BOB POINT (where the revolution begins):
