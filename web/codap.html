@@ -10,12 +10,18 @@
       pointer-events: none; z-index: 50; }
     #panel { position: fixed; top: 8px; right: 8px; width: 320px; z-index: 100;
       background: #fffffff2; border: 1px solid #d5dae0; border-radius: 10px;
-      box-shadow: 0 2px 10px #0003; font-size: 12px; }
-    #panel header { padding: 8px 12px; font-weight: 600; cursor: pointer; user-select: none; }
-    #panel .body { padding: 0 12px 10px; }
+      box-shadow: 0 2px 10px #0003; font-size: 12px;
+      display: flex; flex-direction: column; max-height: calc(100vh - 16px); }
+    #panel header { padding: 8px 12px; font-weight: 600; cursor: pointer; user-select: none;
+      flex: none; }
+    #panel .body { padding: 0 12px 10px; overflow-y: auto; overscroll-behavior: contain; }
     #panel.collapsed .body { display: none; }
-    #panel h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-      color: #667; margin: 10px 0 4px; }
+    #panel details.sec { border-top: 1px solid #e8ebef; }
+    #panel details.sec > summary { font-size: 10px; text-transform: uppercase;
+      letter-spacing: .06em; color: #667; padding: 7px 0 5px; cursor: pointer;
+      user-select: none; list-style-position: inside; }
+    #panel details.sec > summary:hover { color: #234; }
+    #panel details.sec > .sec-body { padding: 2px 0 8px; }
     #panel .row { display: flex; flex-wrap: wrap; gap: 4px; }
     #panel button { padding: 4px 8px; border: 1px solid #99a; border-radius: 5px;
       background: #fff; cursor: pointer; font-size: 11px; }
@@ -35,57 +41,97 @@
   <div id="panel">
     <header id="panelToggle">🌸 Spirit Animal bridge — <span id="conn">connecting…</span></header>
     <div class="body">
-      <h2>Components (click to visit)</h2>
-      <div class="row" id="components"><i>none yet</i></div>
-      <div class="row" style="margin-top:4px">
-        <button id="refresh">refresh list</button>
-        <button id="behaviors">behaviors: <b>on</b></button>
-      </div>
-      <h2>Calibration (tile-anchor offset)</h2>
-      <div class="row">
-        <button data-cal="0,-8">▲</button><button data-cal="0,8">▼</button>
-        <button data-cal="-8,0">◀</button><button data-cal="8,0">▶</button>
-        <button data-scale="-0.01">s−</button><button data-scale="0.01">s+</button>
-        <span id="calv" style="align-self:center"></span>
-      </div>
-      <h2>Behaviors — live state</h2>
-      <div id="bstate" style="font: 10px/1.5 ui-monospace, monospace; white-space: pre;
-        background: #f6f8fa; border: 1px solid #e2e6ea; border-radius: 6px; padding: 6px;"></div>
-      <h2>Force-fire</h2>
-      <div class="row" id="forcefire"></div>
-      <h2>Simulate</h2>
-      <div class="row">
-        <button data-sim="create-graph">create graph</button>
-        <button data-sim="create-table">create table</button>
-        <button data-sim="attr-change">attr → graph</button>
-        <button data-sim="selection">selection</button>
-        <button data-sim="selection-big">big sel</button>
-        <button data-sim="cases-change">cases +</button>
-        <button data-sim="drag-seq">drag+drop</button>
-        <button data-sim="age-120s">age +120s</button>
-        <button data-sim="idle-90s">idle +90s</button>
-        <button data-sim="selftest">selfTest()</button>
-      </div>
-      <h2>Mood (debug — crank a dial)</h2>
-      <div class="row">
-        <button data-mood="playful">playful↑</button>
-        <button data-mood="curious">curious↑</button>
-        <button data-mood="sleepy">sleepy↑</button>
-        <button data-mood="mischievous">mischievous↑</button>
-      </div>
-      <h2>Character test</h2>
-      <div class="row">
-        <button data-clip="tinkerbell">✨ tinkerbell</button>
-        <button data-clip="dance">dance</button>
-        <button data-clip="nod_L">nod_L</button>
-        <button data-clip="nod_R">nod_R</button>
-        <button data-clip="wave">wave</button>
-      </div>
-      <h2>Event log</h2>
-      <div id="log"></div>
+      <details class="sec" data-sec="components" open>
+        <summary>Components (click to visit)</summary>
+        <div class="sec-body">
+          <div class="row" id="components"><i>none yet</i></div>
+          <div class="row" style="margin-top:4px">
+            <button id="refresh">refresh list</button>
+            <button id="behaviors">behaviors: <b>on</b></button>
+          </div>
+        </div>
+      </details>
+      <details class="sec" data-sec="calibration">
+        <summary>Calibration (tile-anchor offset)</summary>
+        <div class="sec-body">
+          <div class="row">
+            <button data-cal="0,-8">▲</button><button data-cal="0,8">▼</button>
+            <button data-cal="-8,0">◀</button><button data-cal="8,0">▶</button>
+            <button data-scale="-0.01">s−</button><button data-scale="0.01">s+</button>
+            <span id="calv" style="align-self:center"></span>
+          </div>
+        </div>
+      </details>
+      <details class="sec" data-sec="bstate" open>
+        <summary>Behaviors — live state</summary>
+        <div class="sec-body">
+          <div id="bstate" style="font: 10px/1.5 ui-monospace, monospace; white-space: pre;
+            background: #f6f8fa; border: 1px solid #e2e6ea; border-radius: 6px; padding: 6px;"></div>
+        </div>
+      </details>
+      <details class="sec" data-sec="forcefire">
+        <summary>Force-fire</summary>
+        <div class="sec-body"><div class="row" id="forcefire"></div></div>
+      </details>
+      <details class="sec" data-sec="simulate">
+        <summary>Simulate</summary>
+        <div class="sec-body">
+          <div class="row">
+            <button data-sim="create-graph">create graph</button>
+            <button data-sim="create-table">create table</button>
+            <button data-sim="attr-change">attr → graph</button>
+            <button data-sim="selection">selection</button>
+            <button data-sim="selection-big">big sel</button>
+            <button data-sim="cases-change">cases +</button>
+            <button data-sim="drag-seq">drag+drop</button>
+            <button data-sim="age-120s">age +120s</button>
+            <button data-sim="idle-90s">idle +90s</button>
+            <button data-sim="selftest">selfTest()</button>
+          </div>
+        </div>
+      </details>
+      <details class="sec" data-sec="mood">
+        <summary>Mood (debug — crank a dial)</summary>
+        <div class="sec-body">
+          <div class="row">
+            <button data-mood="playful">playful↑</button>
+            <button data-mood="curious">curious↑</button>
+            <button data-mood="sleepy">sleepy↑</button>
+            <button data-mood="mischievous">mischievous↑</button>
+          </div>
+        </div>
+      </details>
+      <details class="sec" data-sec="character">
+        <summary>Character test</summary>
+        <div class="sec-body">
+          <div class="row">
+            <button data-clip="tinkerbell">✨ tinkerbell</button>
+            <button data-clip="dance">dance</button>
+            <button data-clip="nod_L">nod_L</button>
+            <button data-clip="nod_R">nod_R</button>
+            <button data-clip="wave">wave</button>
+          </div>
+        </div>
+      </details>
+      <details class="sec" data-sec="log" open>
+        <summary>Event log</summary>
+        <div class="sec-body"><div id="log"></div></div>
+      </details>
     </div>
   </div>
 
+  <script>
+    // remember each accordion's open/closed state across reloads
+    const saved = JSON.parse(localStorage.getItem('spirit-panel-sections') ?? '{}');
+    document.querySelectorAll('details.sec').forEach(d => {
+      const key = d.dataset.sec;
+      if (key in saved) d.open = saved[key];
+      d.addEventListener('toggle', () => {
+        saved[key] = d.open;
+        localStorage.setItem('spirit-panel-sections', JSON.stringify(saved));
+      });
+    });
+  </script>
   <script type="module" src="/src/codap-main.js"></script>
 </body>
 </html>
