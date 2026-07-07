@@ -399,6 +399,12 @@ def _tinkerbell(t, P):
         b = (0.9, 0.5, 0.25)[i] * sin(pi * f)
         P.scale("root", 1 + 0.06 * b, 1 + 0.06 * b, 1 - 0.09 * b)
         roll = -2 * pi                        # upright (identity)
+    # the clip's rest frame is the BOB POINT (where the revolution begins):
+    # she settles there, elevated, and the runtime shifts her screen anchor
+    # by the same offset at launch (meta.anchorShift) so takeoff stays
+    # seamless and the clip still ends at zeroed pose
+    x -= _TK_P2[0]
+    y -= _TK_P2[1]
     P.loc("root", z=-x, y=y)                  # std x=right -> root z=left
     P.rot("root", x=roll)                     # screen-plane roll
     # flight dressing: gills stream, arms dangle/flap
@@ -634,6 +640,12 @@ print(f"scene frame range set to 1-{longest}")
 # manifest for the web runtime
 import json
 manifest = [{"name": n, "seconds": s, "loop": l} for n, s, fn, l in CLIPS]
+for entry in manifest:
+    if entry["name"] == "tinkerbell":
+        # net anchor displacement (std screen frame, armature units): the
+        # runtime shifts the character's anchor by this at launch, since the
+        # clip's rest frame is the elevated bob point
+        entry["anchorShift"] = [_TK_P2[0], _TK_P2[1]]
 mpath = os.path.join(os.path.dirname(bpy.data.filepath), "..", "web", "public")
 os.makedirs(mpath, exist_ok=True)
 with open(os.path.join(mpath, "clips.json"), "w") as f:

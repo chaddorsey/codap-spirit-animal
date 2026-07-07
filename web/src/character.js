@@ -167,6 +167,17 @@ export class Axolotl {
     if (!a) return Promise.resolve();
     if (name === 'blink') { a.reset().play(); return Promise.resolve(); }
     if (this.oneShot) this._endOneShot(0.1);
+    // clips with net root displacement (e.g. tinkerbell settles at its
+    // elevated bob point) are authored with the END pose as rest frame;
+    // shift the screen anchor by the same offset at launch, with zero fade,
+    // so takeoff is seamless and she ends parked at the new anchor
+    const shift = this.meta[name]?.anchorShift;
+    if (shift) {
+      const s = this.root.scale.x;
+      this.root.position.z -= shift[0] * s;   // std x(right) -> world -z
+      this.root.position.y += shift[1] * s;
+      fade = 0;
+    }
     this.oneShot = a;
     this.holdingOneShot = hold;
     a.reset().fadeIn(fade).play();
