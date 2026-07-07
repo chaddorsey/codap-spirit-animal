@@ -661,12 +661,13 @@ def _kilroy(t, P):
 
 def _sleep(t, P):
     breathe = sin(2 * pi * t)                        # loopable slow breath
-    P.rot("head", x=D(18 + 2 * breathe))
+    a = D(24 + 3 * breathe)                          # dozing forward nod, the
+    P.aim("head", (sin(a), 0, cos(a)))               # breath riding on it
     P.rot("chest", x=D(6), z=0)
     P.scale("chest", 1 + 0.03 * breathe, 1 + 0.03 * breathe, 1 + 0.04 * breathe)
     gill_wave(P, t, D(2), 1, sweep=D(10))            # drooped
-    P.scale("eye_L", 1, 1, 0.12)
-    P.scale("eye_R", 1, 1, 0.12)
+    P.scale("eye_L", 1, 1, 0.45)                     # heavy-lidded, not shut
+    P.scale("eye_R", 1, 1, 0.45)
     for i, name in enumerate(TAIL):
         P.rot(name, x=D(2) * sin(2 * pi * t - i * 0.4))
 
