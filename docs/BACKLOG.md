@@ -2,18 +2,7 @@
 
 ## Queued
 
-0. ~~Proposed behaviors~~ — DONE 2026-07-07: all 8 originally-proposed
-   behaviors (selection glance, drag-follow, suggest-graph, milestones…). Each
-   is a one-entry change via `docs/PLAYBOOK-behaviors.md`; all needed clips
-   exist. Good cheap-model tasks.
-
-1. **Emote glyph fix** — `?` and `!` need a larger visible gap between the downstroke
-   and the bottom point/dot. The helvetiker_bold font renders them nearly touching at
-   our extrusion size. Options: geometrically separate (split TextGeometry per part and
-   spread), switch font, or build the glyphs from primitives in `web/src/emotes.js`.
-   Web-only — no Blender needed.
-
-2. **Gesture polish** (optional) — wave arm could clear the cheek a bit more; point
+1. **Gesture polish** (optional) — wave arm could clear the cheek a bit more; point
    could extend straighter. Tune the `P.aim()` direction vectors in
    `02_build_clips.py` (see DONE notes below), rebuild 02→03, verify in console.
 
@@ -29,6 +18,16 @@
   tap_L/tap_R (runtime picks the camera-near arm; `gestureAt`/`tapAt` in
   character.js turn 3/4 toward the target), scratch (chin), dance (loop),
   celebrate (full-V arms). 16 clips total.
+
+## Done (2026-07-07, post-Phase-4)
+
+- All 8 originally-proposed behaviors implemented — **12 behaviors total**,
+  selfTest 18/18. Engine gained (additive): `ignoreActivity` flag (drag-follow),
+  `state.dataContexts`, model-owned `state.componentChurn`.
+- Emote glyph fix: stroke/dot gap opened via connected-component split in
+  `emotes.js` (verified at dpr 2).
+- Finding: v3 emits `dragDrop` notifications only over plugin tiles →
+  `follow-attribute-drag` is simulation-verified, blocked live (BEHAVIORS.md).
 
 ## Done (2026-07-06, Phase 4)
 
