@@ -99,7 +99,7 @@ const TILE_MISCHIEF_COOLDOWN_SEC = 300;
 const TILE_MISCHIEF_NUDGE_PX = 12;    // real DI move, always undone
 const TILE_UNTOUCHED_SEC = 20;        // never mess with what's in use
 const BAT_POINT_COOLDOWN_SEC = 240;
-const BAT_STRIKE_SEC = 0.35;          // bat_L/R first swipe peaks here (02_build_clips)
+const BAT_STRIKE_SEC = 0.19;          // dot flies just into the first swipe (tuned w/ Chad)
 
 // CODAP v3 graph plot-area insets (tile bounds -> plot rect). Calibrated
 // against live v3.1.0 rendering, 2026-08-25: one point measured under two
@@ -878,7 +878,7 @@ export function makeBehaviors() {
         // bat AWAY from the herd — approach from the herd side, so the paw
         // pushes the odd one further out
         const dir = value >= mean ? 1 : -1;
-        await actor.moveTo(px - dir * 32, py - 6, { pixelsPerSecond: 500 });
+        await actor.moveTo(px - dir * 32, py - 1, { pixelsPerSecond: 500 });
         // the 3/4 body turn that puts the camera-near paw over the point
         // (same trick as tapAt) — gaze pinned on the prey
         actor.targetFacing = dir * Math.PI * 0.38;
