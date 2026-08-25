@@ -23,10 +23,12 @@ Latest additions (July 2026): Phase 7 data-move encouragement
 (attack/cruise/brake + overshoot-settle; `{arrive:false}` chains waypoints).
 Sleep is a full doze cycle (`axo.doze()`: dozeoff → snore → Zzz's).
 
-**Current focus: `bat-a-point` is broken in a specific way — read
-`docs/BAT-A-POINT.md`** (design intent, diagnosis: white unparsed point
-color + wrong screen position from uncalibrated plot insets/dot-plot-only
-y math, and the step-by-step fix plan with verification recipe).
+**`bat-a-point` FIXED and live-verified 2026-08-25** on codap3.concord.org
+v3.1.0 — double lands within 0.6 px of the real point on dot plot,
+scatterplot, and after tile resize+move; color exact; selfTest 43/43.
+`docs/BAT-A-POINT.md` records the calibration numbers, what changed, and
+the environment quirks hit while verifying (flaky iframe-phone replies —
+always get-verify updates in a retry loop).
 
 Environment gotchas (macOS dev machine):
 - The Claude session shell may carry a stale `NODE_OPTIONS` preload
@@ -78,11 +80,11 @@ the glb is committed.
 
 ## Work queue, in order
 
-1. **bat-a-point fix** — follow `docs/BAT-A-POINT.md` exactly (instrument
-   first, then color, then position, then polish; acceptance criteria and
-   live verification recipe are in the file).
-2. **More mischief/insight polish** — whatever Chad queues next; tune
+1. **More mischief/insight polish** — whatever Chad queues next; tune
    against `docs/MOTION.md` and `docs/CHARACTER.md`.
+
+Completed 2026-08-25: **bat-a-point fix** (was item 1 — see
+`docs/BAT-A-POINT.md` STATUS section for evidence).
 
 Completed queues: eye glints, limb extension + clips, **Phase 4 behavior engine +
 both playbooks** (work order was `docs/PHASE4.md`; every acceptance box verified —

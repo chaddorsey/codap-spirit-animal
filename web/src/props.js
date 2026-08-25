@@ -6,15 +6,28 @@ import * as THREE from 'three';
  * top of it, gets batted away in a little arc, springs back elastically to
  * land where it started, and is removed. Kitten physics, zero data risk.
  */
+const DEFAULT_POINT_COLOR = 0xe6805b;   // CODAP's default point orange
+
+/** CODAP's pointColor arrives in whatever format the document stored —
+ *  '#rrggbb', 'rgb(...)', '', or absent. An unparseable string must NOT
+ *  fall through to THREE's white default (the "white dot" bug): start from
+ *  CODAP orange and let a successful parse overwrite it. */
+const parsePointColor = (color) => {
+  if (typeof color === 'number') return color;
+  const c = new THREE.Color(DEFAULT_POINT_COLOR);
+  if (typeof color === 'string' && color.trim()) {
+    try { c.set(color.trim()); } catch { c.set(DEFAULT_POINT_COLOR); }
+  }
+  return c;
+};
+
 export class PointDouble {
-  constructor(stage, px, py, { radius = 7, color = 0xe6805b } = {}) {
+  constructor(stage, px, py, { radius = 7, color = DEFAULT_POINT_COLOR } = {}) {
     this.stage = stage;
     this.origin = { x: px, y: py };
     this.pos = { x: px, y: py };
     const geo = new THREE.CircleGeometry(radius / stage.pixelsPerUnit, 24);
-    const mat = new THREE.MeshBasicMaterial({
-      color: typeof color === 'string' ? new THREE.Color(color) : color,
-    });
+    const mat = new THREE.MeshBasicMaterial({ color: parsePointColor(color) });
     this.mesh = new THREE.Mesh(geo, mat);
     // face the ortho camera on +X, sit slightly in front of the character
     this.mesh.rotation.y = Math.PI / 2;

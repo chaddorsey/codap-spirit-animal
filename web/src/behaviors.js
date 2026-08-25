@@ -99,16 +99,73 @@ const TILE_MISCHIEF_COOLDOWN_SEC = 300;
 const TILE_MISCHIEF_NUDGE_PX = 12;    // real DI move, always undone
 const TILE_UNTOUCHED_SEC = 20;        // never mess with what's in use
 const BAT_POINT_COOLDOWN_SEC = 240;
-// CODAP v3 graph plot-area insets (tile bounds -> plot rect), tuned visually
-const PLOT_INSET = { left: 42, right: 10, top: 34, bottom: 46 };
+const BAT_STRIKE_SEC = 0.35;          // bat_L/R first swipe peaks here (02_build_clips)
+
+// CODAP v3 graph plot-area insets (tile bounds -> plot rect). Calibrated
+// against live v3.1.0 rendering, 2026-08-25: one point measured under two
+// axis-bound configs solves each edge (see docs/BAT-A-POINT.md). The LEFT
+// inset is not constant — with a numeric y-axis it grows with the widest
+// tick label, so it is estimated per-graph in plotRect().
+const PLOT_INSET = {
+  top: 34.5,
+  bottom: 47.7,
+  right: 0.5,
+  dotLeft: 37.4,     // no numeric y-axis: just the drag-attribute strip
+  yAxisBase: 45.6,   // strip + rotated axis title + tick pad; + label width
+};
+
+// Widest tick label CODAP will draw for this axis, estimated by mimicking
+// d3-style nice ticks (~1 per 30px) and measuring with canvas. Being one
+// nice-step off is harmless — label WIDTH barely changes.
+let _measureCtx;
+const axisLabelWidth = (lb, ub, plotH) => {
+  if (!Number.isFinite(lb) || !Number.isFinite(ub) || ub <= lb) return 14;
+  const raw = (ub - lb) / Math.max(3, Math.round(plotH / 30));
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const n = raw / mag;
+  const step = (n >= Math.sqrt(50) ? 10 : n >= Math.sqrt(10) ? 5
+    : n >= Math.sqrt(2) ? 2 : 1) * mag;
+  const dec = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  _measureCtx ??= document.createElement('canvas').getContext('2d');
+  _measureCtx.font = '12px Lato, sans-serif';
+  let w = 0;
+  for (let v = Math.ceil(lb / step) * step; v <= ub + step / 2; v += step) {
+    const label = Math.abs(v) < step / 1e6 ? '0' : v.toFixed(dec);
+    w = Math.max(w, _measureCtx.measureText(label).width);
+  }
+  return w;
+};
+
+/** The graph's plot area in screen pixels (tile bounds minus axes). */
+const plotRect = (bounds, props) => {
+  const hasY = !!(props?.yAttributeNames?.length || props?.yAttributeName);
+  const left = hasY
+    ? PLOT_INSET.yAxisBase + axisLabelWidth(props.yLowerBound, props.yUpperBound,
+        bounds.h - PLOT_INSET.top - PLOT_INSET.bottom)
+    : PLOT_INSET.dotLeft;
+  return {
+    x: bounds.x + left,
+    y: bounds.y + PLOT_INSET.top,
+    w: bounds.w - left - PLOT_INSET.right,
+    h: bounds.h - PLOT_INSET.top - PLOT_INSET.bottom,
+  };
+};
+
+const clamp01 = (f) => Math.max(0, Math.min(1, f));
 
 /** Map a data value onto the plot's x pixel range using the graph's axis
  *  bounds (v3 exposes xLowerBound/xUpperBound on the component). */
 const plotX = (bounds, props, value) => {
-  const x0 = bounds.x + PLOT_INSET.left;
-  const w = bounds.w - PLOT_INSET.left - PLOT_INSET.right;
-  const f = (value - props.xLowerBound) / (props.xUpperBound - props.xLowerBound);
-  return x0 + Math.max(0, Math.min(1, f)) * w;
+  const r = plotRect(bounds, props);
+  return r.x + clamp01((value - props.xLowerBound)
+    / (props.xUpperBound - props.xLowerBound)) * r.w;
+};
+
+/** Same for y — pixel y grows downward, data y grows upward. */
+const plotY = (bounds, props, value) => {
+  const r = plotRect(bounds, props);
+  return r.y + (1 - clamp01((value - props.yLowerBound)
+    / (props.yUpperBound - props.yLowerBound))) * r.h;
 };
 
 /** A random screen point not inside any known tile (kitten open water). */
@@ -702,27 +759,47 @@ export function makeBehaviors() {
         const bridge = ctx.engine.bridge;
         const props = (await bridge.request('get', `component[${c.id}]`))?.values;
         if (!props?.xAttributeName || props.xUpperBound == null) return;
-        // fetch the x values and pick the outlier (farthest from the mean)
+        // recompute bounds from THIS fetch — the cached c.bounds goes stale
+        // when a move/resize notification is missed (lost phone reply, or a
+        // change CODAP doesn't echo back to its author)
+        if (props.position && props.dimensions) {
+          c.bounds = bridge.docToScreen(props.position, props.dimensions);
+        }
+        // pick the outlier ITEM (farthest x from the mean) — the whole item,
+        // so a scatterplot can place the double at the same case's y value
         const items = (await bridge.request('get',
           `dataContext[${props.dataContext}].itemSearch[*]`))?.values ?? [];
-        const vals = items.map((it) => Number(it.values?.[props.xAttributeName]))
-          .filter((v) => Number.isFinite(v));
-        if (!vals.length) return;
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        const value = vals.reduce((a, b) => Math.abs(b - mean) > Math.abs(a - mean) ? b : a);
+        const numeric = items.filter((it) =>
+          Number.isFinite(Number(it.values?.[props.xAttributeName])));
+        if (!numeric.length) return;
+        const xOf = (it) => Number(it.values[props.xAttributeName]);
+        const mean = numeric.reduce((a, it) => a + xOf(it), 0) / numeric.length;
+        const item = numeric.reduce((a, b) =>
+          Math.abs(xOf(b) - mean) > Math.abs(xOf(a) - mean) ? b : a);
+        const value = xOf(item);
         state.mood.mischievous = 0;                  // energy discharged
+        const radius = Math.max(3, Math.round(6 * (props.pointSize ?? 1)));
         const sx = plotX(c.bounds, props, value);
-        // dot plot: points rest just above the bottom axis
-        const sy = c.bounds.y + c.bounds.h - PLOT_INSET.bottom - 8;
-        const radius = 6 + 2 * (props.pointSize ?? 1);
-        await actor.moveTo(sx + 70, sy - 20, { pixelsPerSecond: 500 });
+        const yName = props.yAttributeNames?.[0] ?? props.yAttributeName;
+        const yVal = yName != null ? Number(item.values?.[yName]) : NaN;
+        const rect = plotRect(c.bounds, props);
+        // scatterplot: the outlier case's own y; dot plot: its dot sits
+        // alone in the bottom row, resting on the axis
+        const sy = (Number.isFinite(yVal) && props.yUpperBound != null)
+          ? plotY(c.bounds, props, yVal)
+          : rect.y + rect.h - radius - 1.5;
+        // bat AWAY from the herd — approach from the herd side, so the paw
+        // pushes the odd one further out
+        const dir = value >= mean ? 1 : -1;
+        await actor.moveTo(sx - dir * 70, sy - 20, { pixelsPerSecond: 500 });
         actor.lookAt(sx, sy);
         await ctx.sleep(POUNCE_STALK_SEC);           // stillness before the bat
         const dot = actor.spawnDot(sx, sy, { color: props.pointColor, radius });
         ctx.onCancel(() => dot.remove());            // never leak the double
-        const bat = actor.play('bat_R');
-        await ctx.sleep(0.4);                        // paw connects
-        await dot.batTo(-60, -20);
+        const bat = actor.play(dir > 0 ? 'bat_L' : 'bat_R');
+        await ctx.sleep(BAT_STRIKE_SEC);             // paw connects mid-swipe
+        await dot.batTo(dir * 60, -20);
+        await ctx.sleep(0.25);                       // ...where'd it go?
         await dot.springBack();
         dot.remove();
         await bat;
@@ -962,12 +1039,8 @@ export function makeBehaviors() {
         const g = [...state.components.values()].filter((k) => isGraph(k) && k.bounds).at(-1);
         if (!g) { actor.emote('?'); return; }
         const b = g.bounds;
-        const axisRect = {
-          x: b.x + PLOT_INSET.left,
-          y: b.y + b.h - PLOT_INSET.bottom,
-          w: b.w - PLOT_INSET.left - PLOT_INSET.right,
-          h: PLOT_INSET.bottom,
-        };
+        const r = plotRect(b, null);        // axis-region math needs no props
+        const axisRect = { x: r.x, y: r.y + r.h, w: r.w, h: PLOT_INSET.bottom };
         // covered by the TILE (Dot hides behind the whole graph while
         // rising); the axis rect only supplies the crest edge
         await kilroyOver(actor, axisRect, ctx,
@@ -1016,7 +1089,8 @@ export function makeBehaviors() {
           if (props?.xUpperBound != null && props?.xAttributeName === t.attr) {
             sx = plotX(graph.bounds, props, t.value);
           }
-          const sy = graph.bounds.y + graph.bounds.h - PLOT_INSET.bottom - 8;
+          const r = plotRect(graph.bounds, props);
+          const sy = r.y + r.h - 8;       // the bottom row, where loners sit
           await actor.moveTo(sx + 55, sy - 15);
           actor.lookAt(sx, sy);
           await ctx.sleep(4);                        // cannot stop staring
