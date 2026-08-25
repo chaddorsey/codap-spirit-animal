@@ -73,6 +73,37 @@ and NO manual state fixups → model self-heals within one resync cycle →
 the REAL panel button fires the full sequence (spawn at the verified
 coordinates); selfTest 43/43 twice under live conditions.
 
+### Visual polish round (same day, Chad's review)
+
+Chad: (a) double a different size than the real point, (b) the real point
+stays visible while the double flies, (c) the paw never gets near the
+point. All three fixed and screenshot-verified on dot plot + scatterplot:
+
+- **(a) + position ground truth**: new `measureRealPoint()` in
+  `behaviors.js` — fetches CODAP's own PNG export (`get dataDisplay[id]`,
+  which on v3.1.0 is the tile minus the 34-px title bar at 1:1 doc scale),
+  scans a ±30 px window around the PREDICTED point for the nearest
+  point-colored blob, and returns its exact screen center and drawn
+  radius. The inset math is now just the prior; the render is the truth —
+  robust to CODAP's count-dependent point sizing. Measured spawn (545,
+  511.5) r 7 on the dot plot and (547, 469) r 6.5 on the scatterplot vs
+  real (544.9, 511.5) / (546.3, 468.8). Runs concurrently with the
+  approach swim; falls back to the prediction on any failure.
+  GOTCHA: the pixel comparison must NOT use THREE.Color — its color
+  management converts sRGB to linear (g 128 → ~55) and zero pixels match.
+  Canvas `fillStyle` normalization parses the color instead.
+- **(b)**: `PointDouble` takes `coverColor` (the graph's
+  `backgroundColor`, default white) and spawns a background-colored patch
+  over the real point, slightly BEHIND the character plane so the paw
+  sweeps in front of it; removed with the double. While the double flies,
+  the origin reads as empty plot.
+- **(c)**: the stance was 70 px out with no body turn (gaze only), so the
+  swipe hit air. Now: stand at 32 px from the point (24 px above), plus
+  the same 3/4 body turn `tapAt` uses (`targetFacing = dir·0.38π`) so the
+  camera-near paw sweeps over the point; `bat_L`/`bat_R` chosen so the
+  paw matches the approach side. Strike-frame screenshots show the paw
+  tip on the dot.
+
 Known environment quirks discovered while verifying (kept for the next
 session): iframe-phone replies are intermittently LOST on this wrapper —
 always verify an update with a follow-up get, in a retry loop; the engine's

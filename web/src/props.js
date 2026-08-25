@@ -8,21 +8,22 @@ import * as THREE from 'three';
  */
 const DEFAULT_POINT_COLOR = 0xe6805b;   // CODAP's default point orange
 
-/** CODAP's pointColor arrives in whatever format the document stored —
+/** CODAP's color strings arrive in whatever format the document stored —
  *  '#rrggbb', 'rgb(...)', '', or absent. An unparseable string must NOT
  *  fall through to THREE's white default (the "white dot" bug): start from
- *  CODAP orange and let a successful parse overwrite it. */
-const parsePointColor = (color) => {
-  if (typeof color === 'number') return color;
-  const c = new THREE.Color(DEFAULT_POINT_COLOR);
+ *  the fallback and let a successful parse overwrite it. */
+export const parsePointColor = (color, fallback = DEFAULT_POINT_COLOR) => {
+  if (typeof color === 'number') return new THREE.Color(color);
+  const c = new THREE.Color(fallback);
   if (typeof color === 'string' && color.trim()) {
-    try { c.set(color.trim()); } catch { c.set(DEFAULT_POINT_COLOR); }
+    try { c.set(color.trim()); } catch { c.set(fallback); }
   }
   return c;
 };
 
 export class PointDouble {
-  constructor(stage, px, py, { radius = 7, color = DEFAULT_POINT_COLOR } = {}) {
+  constructor(stage, px, py,
+    { radius = 7, color = DEFAULT_POINT_COLOR, coverColor = null } = {}) {
     this.stage = stage;
     this.origin = { x: px, y: py };
     this.pos = { x: px, y: py };
@@ -31,6 +32,19 @@ export class PointDouble {
     this.mesh = new THREE.Mesh(geo, mat);
     // face the ortho camera on +X, sit slightly in front of the character
     this.mesh.rotation.y = Math.PI / 2;
+    // the REAL point never moves — while the double flies, a background-
+    // colored patch sits over it (behind the character plane, so the paw
+    // sweeps in front) to complete the "the point itself flew" illusion
+    if (coverColor != null) {
+      const cgeo = new THREE.CircleGeometry((radius + 1.5) / stage.pixelsPerUnit, 24);
+      const cmat = new THREE.MeshBasicMaterial(
+        { color: parsePointColor(coverColor, 0xffffff) });
+      this.cover = new THREE.Mesh(cgeo, cmat);
+      this.cover.rotation.y = Math.PI / 2;
+      const w = stage.worldFromScreen(px, py);
+      this.cover.position.set(w.x - 0.5, w.y, w.z);
+      stage.scene.add(this.cover);
+    }
     this._place(px, py);
     stage.scene.add(this.mesh);
   }
@@ -83,5 +97,10 @@ export class PointDouble {
     this.mesh.parent?.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
+    if (this.cover) {
+      this.cover.parent?.remove(this.cover);
+      this.cover.geometry.dispose();
+      this.cover.material.dispose();
+    }
   }
 }

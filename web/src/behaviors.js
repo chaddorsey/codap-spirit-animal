@@ -168,6 +168,75 @@ const plotY = (bounds, props, value) => {
     / (props.yUpperBound - props.yLowerBound))) * r.h;
 };
 
+/** Ground truth for one plotted point: CODAP's own PNG export of the graph
+ *  (`get dataDisplay[id]`) rendered to a canvas, scanned near the PREDICTED
+ *  position for the nearest point-colored blob. Returns the blob's exact
+ *  screen center and drawn radius — robust to CODAP's count-dependent point
+ *  sizing and any residual inset error. Null on any failure (caller falls
+ *  back to the prediction). Verified v3.1.0: export = tile minus title bar,
+ *  1:1 doc scale. */
+export async function measureRealPoint(bridge, bounds, gid, sx, sy, colorStr) {
+  let uri = null;
+  for (let i = 0; i < 3 && !uri; i++) {          // phone replies get lost
+    uri = (await bridge.request('get', `dataDisplay[${gid}]`))
+      ?.values?.exportDataUri ?? null;
+  }
+  if (!uri) return null;
+  const img = new Image();
+  try {
+    await new Promise((res, rej) => {
+      img.onload = res; img.onerror = rej; img.src = uri;
+    });
+  } catch { return null; }
+  const s = bounds.w / img.width;                 // export → screen scale
+  const top = bounds.y + bounds.h - img.height * s;   // export omits title bar
+  const ex = (sx - bounds.x) / s;
+  const ey = (sy - top) / s;
+  const cv = document.createElement('canvas');
+  cv.width = img.width; cv.height = img.height;
+  const c2d = cv.getContext('2d', { willReadFrequently: true });
+  c2d.drawImage(img, 0, 0);
+  // raw sRGB target color — NOT via THREE.Color, whose color management
+  // converts to linear space and breaks pixel comparison (g 128 -> ~55).
+  // Canvas normalizes any valid CSS color; invalid input leaves the default.
+  c2d.fillStyle = '#e6805b';
+  if (typeof colorStr === 'string' && colorStr.trim()) c2d.fillStyle = colorStr.trim();
+  const hex = /^#[0-9a-f]{6}$/i.test(c2d.fillStyle) ? c2d.fillStyle : '#e6805b';
+  const tr = parseInt(hex.slice(1, 3), 16);
+  const tg = parseInt(hex.slice(3, 5), 16);
+  const tb = parseInt(hex.slice(5, 7), 16);
+  const x0 = Math.max(0, Math.round(ex - 30));
+  const y0 = Math.max(0, Math.round(ey - 30));
+  const x1 = Math.min(img.width - 1, Math.round(ex + 30));
+  const y1 = Math.min(img.height - 1, Math.round(ey + 30));
+  if (x1 <= x0 || y1 <= y0) return null;
+  const w = x1 - x0 + 1;
+  const d = c2d.getImageData(x0, y0, w, y1 - y0 + 1).data;
+  const hits = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = ((y - y0) * w + (x - x0)) * 4;
+      if (Math.abs(d[i] - tr) < 40 && Math.abs(d[i + 1] - tg) < 40
+        && Math.abs(d[i + 2] - tb) < 40) hits.push([x, y]);
+    }
+  }
+  if (!hits.length) return null;
+  let seed = hits[0]; let best = Infinity;
+  for (const h of hits) {
+    const dd = (h[0] - ex) ** 2 + (h[1] - ey) ** 2;
+    if (dd < best) { best = dd; seed = h; }
+  }
+  const blob = hits.filter((h) =>
+    Math.abs(h[0] - seed[0]) < 14 && Math.abs(h[1] - seed[1]) < 14);
+  const bx = blob.map((h) => h[0]); const by = blob.map((h) => h[1]);
+  const cx = (Math.min(...bx) + Math.max(...bx)) / 2;
+  const cy = (Math.min(...by) + Math.max(...by)) / 2;
+  const r = (Math.max(Math.max(...bx) - Math.min(...bx),
+    Math.max(...by) - Math.min(...by)) + 1) / 2;
+  return { x: bounds.x + cx * s, y: top + cy * s,
+    r: Math.min(12, Math.max(3, r * s)) };
+}
+
 /** A random screen point not inside any known tile (kitten open water). */
 const openWater = (state) => {
   const tiles = [...state.components.values()].filter((c) => c.bounds);
@@ -792,23 +861,34 @@ export function makeBehaviors() {
           Math.abs(xOf(b) - mean) > Math.abs(xOf(a) - mean) ? b : a);
         const value = xOf(item);
         state.mood.mischievous = 0;                  // energy discharged
-        const radius = Math.max(3, Math.round(6 * (props.pointSize ?? 1)));
-        const sx = plotX(c.bounds, props, value);
+        const fallbackR = Math.max(3, Math.round(6 * (props.pointSize ?? 1)));
+        const px = plotX(c.bounds, props, value);
         const yName = props.yAttributeNames?.[0] ?? props.yAttributeName;
         const yVal = yName != null ? Number(item.values?.[yName]) : NaN;
         const rect = plotRect(c.bounds, props);
         // scatterplot: the outlier case's own y; dot plot: its dot sits
         // alone in the bottom row, resting on the axis
-        const sy = (Number.isFinite(yVal) && props.yUpperBound != null)
+        const py = (Number.isFinite(yVal) && props.yUpperBound != null)
           ? plotY(c.bounds, props, yVal)
-          : rect.y + rect.h - radius - 1.5;
+          : rect.y + rect.h - fallbackR - 1.5;
+        // ground-truth the point from CODAP's own render while swimming
+        // over (exact center + drawn radius; the math above is the prior)
+        const measuring = measureRealPoint(bridge, c.bounds, c.id, px, py,
+          props.pointColor).catch(() => null);
         // bat AWAY from the herd — approach from the herd side, so the paw
         // pushes the odd one further out
         const dir = value >= mean ? 1 : -1;
-        await actor.moveTo(sx - dir * 70, sy - 20, { pixelsPerSecond: 500 });
-        actor.lookAt(sx, sy);
+        await actor.moveTo(px - dir * 32, py - 24, { pixelsPerSecond: 500 });
+        // the 3/4 body turn that puts the camera-near paw over the point
+        // (same trick as tapAt) — gaze pinned on the prey
+        actor.targetFacing = dir * Math.PI * 0.38;
+        actor.lookAt(px, py);
         await ctx.sleep(POUNCE_STALK_SEC);           // stillness before the bat
-        const dot = actor.spawnDot(sx, sy, { color: props.pointColor, radius });
+        const m = await measuring;
+        const sx = m?.x ?? px; const sy = m?.y ?? py;
+        const radius = m?.r ?? fallbackR;
+        const dot = actor.spawnDot(sx, sy, { color: props.pointColor, radius,
+          coverColor: props.backgroundColor ?? '#ffffff' });
         ctx.onCancel(() => dot.remove());            // never leak the double
         const bat = actor.play(dir > 0 ? 'bat_L' : 'bat_R');
         await ctx.sleep(BAT_STRIKE_SEC);             // paw connects mid-swipe
