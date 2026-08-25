@@ -753,12 +753,26 @@ export function makeBehaviors() {
         && [...state.components.values()].some((c) =>
           isGraph(c) && c.bounds && (c.attrsAssigned ?? 0) > 0),
       async run(actor, state, ctx) {
-        const c = [...state.components.values()].filter((k) =>
-          isGraph(k) && k.bounds && (k.attrsAssigned ?? 0) > 0).at(-1);
-        if (!c) return;
         const bridge = ctx.engine.bridge;
-        const props = (await bridge.request('get', `component[${c.id}]`))?.values;
-        if (!props?.xAttributeName || props.xUpperBound == null) return;
+        // candidates: newest first, attr-known graphs before unknowns. The
+        // props fetch is the ground truth on whether a graph is populated —
+        // attrsAssigned is only a hint (it misses attrs assigned before the
+        // wrapper loaded or whose notification was lost), so probe rather
+        // than gate, or the force-fire button dies silently.
+        const graphs = [...state.components.values()]
+          .filter((k) => isGraph(k) && k.bounds).reverse();
+        graphs.sort((a, b) =>
+          ((b.attrsAssigned ?? 0) > 0 ? 1 : 0) - ((a.attrsAssigned ?? 0) > 0 ? 1 : 0));
+        let c = null; let props = null;
+        for (const cand of graphs) {
+          for (let attempt = 0; attempt < 2 && !props; attempt++) {  // flaky phone
+            const p = (await bridge.request('get', `component[${cand.id}]`))?.values;
+            if (p?.xAttributeName && p.xUpperBound != null) { c = cand; props = p; }
+          }
+          if (c) break;
+        }
+        if (!c) { actor.emote('?'); return; }         // nothing battable — say so
+        if (!(c.attrsAssigned > 0)) c.attrsAssigned = 1;   // heal the hint
         // recompute bounds from THIS fetch — the cached c.bounds goes stale
         // when a move/resize notification is missed (lost phone reply, or a
         // change CODAP doesn't echo back to its author)

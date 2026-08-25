@@ -41,6 +41,38 @@ What changed (all in `web/src/`):
    0.55 window); 0.25 s "where'd it go?" beat before springBack.
 4. `demo-peek-axis` and `wise-attend` outlier-stare now use `plotRect()` too.
 
+### Follow-up fix (same day): force-fire button did nothing
+
+Chad pressed the panel's Force-fire → bat-a-point and saw nothing. Two
+compounding causes, both rooted in LOST iframe-phone notifications:
+
+1. **The engine's component model can be empty or blind.** A
+   `component:create` notification that never arrives leaves the model
+   empty; a graph whose attribute was assigned before the wrapper loaded
+   (or whose `attributeChange` notification was dropped) sits at
+   `attrsAssigned: 0` forever. bat-a-point's run() gated on
+   `attrsAssigned > 0` and returned SILENTLY. (The earlier verification
+   masked this by setting `attrsAssigned = 1` by hand before force-firing.)
+2. Fixes (`behavior-engine.js`, `codap-bridge.js`, `behaviors.js`):
+   - `bridge.components()` now reports `hasX` (live x-attribute presence);
+     the engine seeds/heals `attrsAssigned` from it.
+   - Periodic model reconciliation: `_resyncComponents()` sweeps the live
+     componentList every 15 s (`COMPONENT_RESYNC_SEC`) from tick(), running
+     even when behaviors are disabled — force-fire depends on the model too.
+   - bat-a-point run() no longer gates on `attrsAssigned`: it probes
+     candidate graphs (newest first) and lets the props fetch decide, with
+     one retry per candidate for the flaky phone; if nothing is battable it
+     emotes `?` instead of silently returning.
+   - selfTest's "first data move" check now disables the engine and drains
+     `actor.oneShot`/`motion` after cancelling — the resync made natural
+     behaviors fire during live selfTest runs, exposing a pre-existing race
+     where `_evaluate`'s motion-guard swallowed the simulated event.
+
+Verified: fresh page → new doc → dataset+graph created with behaviors ON
+and NO manual state fixups → model self-heals within one resync cycle →
+the REAL panel button fires the full sequence (spawn at the verified
+coordinates); selfTest 43/43 twice under live conditions.
+
 Known environment quirks discovered while verifying (kept for the next
 session): iframe-phone replies are intermittently LOST on this wrapper —
 always verify an update with a follow-up get, in a retry loop; the engine's

@@ -96,6 +96,10 @@ export class CodapBridge extends EventTarget {
       out.push({
         id: item.id, type: item.type, title: item.title || item.name || item.type,
         bounds: position && dimensions ? this.docToScreen(position, dimensions) : null,
+        // graphs only: whether an x attribute is assigned RIGHT NOW — lets
+        // the engine seed attrsAssigned truthfully for graphs it never saw
+        // an attributeChange notification for (preexisting / lost reply)
+        hasX: !!c.values?.xAttributeName,
       });
     }
     return out;

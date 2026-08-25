@@ -29,6 +29,7 @@ export class Cancelled extends Error {
 const ACTION_GRACE_SEC = 0.35;
 const TICK_INTERVAL_SEC = 1;      // time-based triggers evaluated at this rate
 const BOUNDS_RETRIES = 10;        // componentList lags creates by seconds
+const COMPONENT_RESYNC_SEC = 15;  // periodic model repair (notifications get lost)
 const BOUNDS_RETRY_MS = 600;
 
 // ---- mood drift rates (per second; see docs/CHARACTER.md "Mood") ----
@@ -109,6 +110,15 @@ export class BehaviorEngine {
     if (this._tickAccum < TICK_INTERVAL_SEC) return;
     this._tickMood(this._tickAccum);
     this._tickAccum = 0;
+    // periodic model reconciliation — iframe-phone notifications get LOST
+    // (observed live: a component:create that never arrived left the model
+    // empty and every graph behavior dead). Runs even when behaviors are
+    // disabled: force-fire depends on this model too.
+    if (this.bridge?.connected
+      && now() - (this._lastResyncAt ?? 0) > COMPONENT_RESYNC_SEC) {
+      this._lastResyncAt = now();
+      this._resyncComponents();
+    }
     this._evaluate({ type: 'tick', detail: {} });
   }
 
@@ -378,15 +388,24 @@ export class BehaviorEngine {
     return true;
   }
 
-  async _seedComponents() {
+  async _seedComponents() { await this._resyncComponents(); }
+
+  /** One truth-sweep of the live componentList into the model: add missing
+   *  components, refresh bounds/type/title, heal attrsAssigned from hasX.
+   *  This is the safety net for LOST iframe-phone notifications. */
+  async _resyncComponents() {
     const comps = await this.bridge.components().catch(() => []);
     for (const c of comps) {
-      if (this.state.components.has(c.id)) continue;
-      // preexisting components have unknown attribute state — behaviors that
-      // depend on attrsAssigned must not assume 0 means "empty" for these
-      this.state.components.set(c.id, {
-        ...c, createdAt: now(), attrsAssigned: 0, preexisting: true,
-      });
+      const known = this.state.components.get(c.id);
+      if (known) {
+        known.bounds = c.bounds; known.type = c.type; known.title = c.title;
+        // the live props say there IS an x attribute — never lower a count
+        if (c.hasX && !(known.attrsAssigned > 0)) known.attrsAssigned = 1;
+      } else {
+        this.state.components.set(c.id, {
+          ...c, createdAt: now(), attrsAssigned: c.hasX ? 1 : 0, preexisting: true,
+        });
+      }
     }
   }
 
@@ -394,16 +413,7 @@ export class BehaviorEngine {
   async _fetchBounds(targetId) {
     for (let i = 0; i < BOUNDS_RETRIES; i++) {
       if (i) await new Promise((r) => setTimeout(r, BOUNDS_RETRY_MS));
-      const comps = await this.bridge.components().catch(() => []);
-      for (const c of comps) {
-        const known = this.state.components.get(c.id);
-        if (known) { known.bounds = c.bounds; known.type = c.type; known.title = c.title; }
-        else {
-          this.state.components.set(c.id, {
-            ...c, createdAt: now(), attrsAssigned: 0, preexisting: true,
-          });
-        }
-      }
+      await this._resyncComponents();
       if (this.state.components.get(targetId)?.bounds) return;
     }
   }
@@ -556,9 +566,17 @@ export class BehaviorEngine {
       if (cheer) {
         // a tick during the await gap above can start an ignoreActivity
         // behavior (e.g. tile-mischief), which student actions can't
-        // displace — clear the stage and calm the mischief first
+        // displace — clear the stage and calm the mischief first. Holding
+        // enabled=false while the cancelled run's clip/move drains matters
+        // too: _evaluate's motion-guard would swallow the simulated event
+        // (and a tick could start ANOTHER behavior mid-drain).
         this.state.mood.mischievous = 0;
+        this.enabled = false;
         this.cancelActive('selfTest');
+        for (let i = 0; i < 40 && (this.actor.oneShot || this.actor.motion); i++) {
+          await rest(0.05);
+        }
+        this.enabled = true;
         const savedCheer = { lastFiredAt: cheer.lastFiredAt,
           mem: JSON.parse(JSON.stringify(cheer.mem)) };
         cheer.lastFiredAt = -Infinity;
