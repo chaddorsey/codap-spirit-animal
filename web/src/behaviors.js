@@ -878,7 +878,7 @@ export function makeBehaviors() {
         // bat AWAY from the herd — approach from the herd side, so the paw
         // pushes the odd one further out
         const dir = value >= mean ? 1 : -1;
-        await actor.moveTo(px - dir * 32, py - 24, { pixelsPerSecond: 500 });
+        await actor.moveTo(px - dir * 32, py - 6, { pixelsPerSecond: 500 });
         // the 3/4 body turn that puts the camera-near paw over the point
         // (same trick as tapAt) — gaze pinned on the prey
         actor.targetFacing = dir * Math.PI * 0.38;
