@@ -11,12 +11,15 @@ tutorial-2 document, every one with an empty revert diff:
 
 | script | result |
 |---|---|
-| `SelectCases` (marquee a subset) | **green** — 12.9 s / 33.7 s across runs, residue 0 |
-| `HideUnselected` (inspector menu) | **green** — 29.4 s / 57.1 s, residue 0, hidden cases restored |
-| `Deselect` (click empty plot) | **green** — 19.8 s / 22.3 s, residue 0 |
-| `Rescale` (inspector button) | **green** — 8.6 s / 10.9 s, residue 0 |
-| `MakeLegend` (attribute → plot) | **green** — 22.0 s / 36.4 s, residue 0 (was failing; see the aim-low fix below) |
-| `MakeScatterplot` (graph + two axes) | **green once at 50.4 s**, fails when CODAP is slow — bailed out, ships with its MP4 (`BAILOUTS.md` #3) |
+| `SelectCases` (marquee a subset) | **green** — 13.2 s on the final run (12.9 / 33.7 earlier), residue 0 |
+| `HideUnselected` (inspector menu) | **green** — 43.1 s, residue 0, hidden cases restored |
+| `Deselect` (click empty plot) | **green** — 21.0 s, residue 0 |
+| `Rescale` (inspector button) | **green** — 8.6 s, residue 0 |
+| `MakeLegend` (attribute → plot) | **green** — 33.0 s, residue 0 (was failing; see the aim-low fix below) |
+| `MakeScatterplot` (graph + two axes) | **0 of 6 fresh attempts** with the final code — bailed out, ships with its MP4 (`BAILOUTS.md` #3) |
+
+Final run, all five: document left exactly as found — `x=Age, y=Height,
+legend=null, hidden=0`.
 
 **"tutorial 2 fully Dot-powered (P3 criteria)"** — the fork, the handshake, the
 document and the task list are all in place and verified (the plugin
@@ -106,6 +109,13 @@ The snapshot now carries `hidden` (the count of `hiddenCases`) and
 cases were hidden, not which — so a demo starting from a document that already
 had cases hidden reports residue instead of guessing. Verified: hidden before 0,
 hidden after 0, residue 0.
+
+**The other lesson to carry into P5:** a drag onto a component CODAP has just
+created costs roughly 5 s per injected move, regardless of how few moves you
+use; the same drag onto a settled component costs 3.2 s in total. Any script
+that creates a component and then immediately drags onto it is buying a large,
+variable bill. Where a task allows it, prefer acting on something that is
+already there.
 
 The general lesson, and the one to carry into P5: **the state-diff revert is
 only as good as the snapshot's field list.** Every new verb that can change
