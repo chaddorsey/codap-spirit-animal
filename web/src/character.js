@@ -5,6 +5,10 @@ import { PointDouble } from './props.js';
 
 const FRONT = new THREE.Vector3(1, 0, 0);   // character faces +X at rest
 
+// Paw tip relative to the `hand_L/R` bone origin, in the bone's local frame
+// (Blender bones run along local +Y). Calibrated in P1 — see pawScreen().
+const PAW_TIP = new THREE.Vector3(0, 0.30, 0);
+
 /**
  * The axolotl puppet. Owns the mixer, clip layering, screen-space
  * locomotion, and the procedural gaze pass. All positions in the public
@@ -103,7 +107,7 @@ export class Axolotl {
     if (this.actions.blink) this.actions.blink.clampWhenFinished = false;
 
     this.bones = {};
-    for (const n of ['head', 'eye_L', 'eye_R']) {
+    for (const n of ['head', 'eye_L', 'eye_R', 'hand_L', 'hand_R']) {
       this.bones[n] = this.model.getObjectByName(n);
     }
     // bind-pose bookkeeping for the gaze pass
@@ -246,9 +250,31 @@ export class Axolotl {
 
   /** Face a screen point (yaw only), or 0 to face the viewer. */
   faceToward(px) {
+    // Phase 9: while a demo owns the choreography it also owns the facing —
+    // update() calls faceToward() every motion frame and the arrival ritual
+    // snaps targetFacing back to 0, both of which fight a held 3/4 turn.
+    if (this.facingOverride) return;
     const here = this.getPosition();
     this.targetFacing = Math.abs(px - here.x) < 30 ? 0
       : (px > here.x ? Math.PI / 2 : -Math.PI / 2);
+  }
+
+  /**
+   * Screen position of the pointing paw — the demo driver's feedback signal
+   * for keeping the paw glued to the injected cursor (Phase 9 P1).
+   *
+   * `hand_L/R` is the end bone of the two-bone arm; its ORIGIN sits at 70%
+   * along the limb (pipeline/01_build_rig.py), so the visible paw tip is a
+   * little further out. `PAW_TIP` is that remainder, in the bone's local
+   * frame, calibrated once against a held-pose screenshot.
+   */
+  pawScreen(side = 'L') {
+    const b = this.bones[`hand_${side}`];
+    if (!b) return null;
+    const p = b.getWorldPosition(new THREE.Vector3());
+    const q = b.getWorldQuaternion(new THREE.Quaternion());
+    p.add(PAW_TIP.clone().applyQuaternion(q).multiplyScalar(this.root.scale.x));
+    return this.stage.screenFromWorld(p);
   }
 
   /** Turn toward a screen point and point at it. Holds until release().
@@ -370,8 +396,7 @@ export class Axolotl {
         if (s >= 0.45) {
           this.root.position.copy(m.target);
           const done = m.resolve; this.motion = null;
-          this.targetFacing = 0;
-          this.setBase('idle');
+          if (!this.facingOverride) { this.targetFacing = 0; this.setBase('idle'); }
           done();
         }
       } else {

@@ -5,6 +5,10 @@ import { BehaviorEngine } from './behavior-engine.js';
 import { makeBehaviors, MIND } from './behaviors.js';
 import { Whisker } from './whisker.js';
 import { analyzeDataset, suggestMoves } from './insight.js';
+import { Injector, sameOrigin } from './inject.js';
+import { DemoDriver } from './demo/demo-driver.js';
+import { P1_DEMOS } from './demo/demos-p1.js';
+import { ensureMammals } from './demo/fixture.js';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -150,6 +154,68 @@ const sims = {
 };
 document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.dataset.sim]; });
 
+// ------------------------------------------------------- Phase 9: Show me
+// Live demonstrations need to reach INTO CODAP, which only works when the
+// iframe is same-origin (codap-same.html via the vite proxy). On the
+// cross-origin page (codap.html) everything below simply stays absent and the
+// wrapper behaves exactly as it did before.
+let demo = null;
+function setupDemo() {
+  const iframe = document.getElementById('codap');
+  if (demo || !sameOrigin(iframe)) return;
+  const inj = new Injector(iframe.contentWindow, {
+    isAborted: () => !!demo?.driver?.aborted,
+  });
+  const driver = new DemoDriver({ axo, stage, bridge, inj, iframe,
+    log: (t) => logLine(`demo: ${t}`, '#1c63d6') });
+
+  const api = (a, r, v, o) => driver.api(a, r, v, o);
+
+  demo = {
+    driver, inj,
+    /** Run one of the P1 hard-coded demonstrations by name. */
+    run: async (name, opts) => {
+      const fn = P1_DEMOS[name];
+      if (!fn) throw new Error(`no such demo: ${name} (have ${Object.keys(P1_DEMOS)})`);
+      const wasEnabled = engine.enabled;
+      engine.enabled = false;              // P2 replaces this with a behavior
+      try {
+        const r = await fn(driver, opts);
+        logLine(`demo ${name}: sync max ${r.sync?.max}px over ${r.sync?.samples} `
+          + `frames; revert ${r.revert?.clicks} click(s), residue `
+          + `${r.revert?.residue?.length ?? '?'}`, '#0b7285');
+        return r;
+      } catch (err) {
+        logLine(`demo ${name} FAILED: ${err.message}`, '#c92a2a');
+        await driver.revert({ embodied: false }).catch(() => {});
+        await driver.end();
+        throw err;
+      } finally {
+        engine.enabled = wasEnabled;
+      }
+    },
+    fixture: (opts) => ensureMammals(api, opts),
+    snapshot: () => driver.snapshot(),
+    sync: () => driver.syncReport(),
+    api,
+  };
+  window.__demo = demo;
+  window.__inj = inj;
+  logLine('same-origin CODAP — window.__demo available', '#1c63d6');
+}
+// The iframe is usually still loading at module-eval time, so try again once
+// CODAP announces itself (and once more on a timer for a cold cache).
+bridge.addEventListener('connected', () => setTimeout(setupDemo, 300));
+setupDemo();
+setTimeout(setupDemo, 4000);
+
+// Debug buttons exist only on the same-origin page; wire them if present.
+document.querySelector('#demoFixture')?.addEventListener('click',
+  () => demo?.fixture({ force: false }).then((id) => logLine(`fixture ready (table ${id})`, '#0b7285')));
+for (const b of document.querySelectorAll('[data-demo]')) {
+  b.onclick = () => demo?.run(b.dataset.demo).catch(() => {});
+}
+
 // ------------------------------------------------------------- Dot's mind
 // Full reasoning exposed: Phase 7 (data-move reactions) in blue, Phase 8
 // (insight-driven suggestions, with live rationale) in dark red.
@@ -241,6 +307,9 @@ stage.renderer.setAnimationLoop(() => {
   const dt = Math.min(0.05, (now - clock.last) / 1000);
   clock.last = now;
   axo.update(dt);
+  // AFTER axo.update so the skeleton is current this frame: the driver reads
+  // the paw's world position and places the body from it (P1).
+  demo?.driver.tick(dt);
   engine.tick(dt);
   whisker.enabled = engine.enabled;
   whisker.update();
