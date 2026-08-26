@@ -57,6 +57,29 @@ export class ShowMeBridge {
     }
   }
 
+  /**
+   * Suppression is a property of A DEMO RUNNING, not of how it was started.
+   *
+   * These two are called by the demo runner itself, so a demo triggered from
+   * the debug panel, the console, or a test suppresses the checklist exactly
+   * like one triggered by "Show me." — the first version wired the start/end
+   * messages into the Show-me handler only, and every other path let the
+   * plugin check the task off while Dot was demonstrating it, which is the
+   * one thing demo-then-revert exists to prevent.
+   */
+  demoStarted(key) {
+    this.broadcast({ type: 'dot-demo-start', key });
+    this.log(`demo ${key}: suppression on`);
+  }
+
+  async demoEnded(key, ok, error) {
+    await this._settle();
+    this.broadcast(ok
+      ? { type: 'dot-demo-end', key, ok: true }
+      : { type: 'dot-demo-error', key, error: String(error?.message ?? error) });
+    this.log(`demo ${key}: suppression off (${ok ? 'ok' : 'error'})`);
+  }
+
   async _onMessage(event) {
     const data = event?.data;
     if (!data || typeof data.type !== 'string' || !data.type.startsWith('dot-')) return;
@@ -86,19 +109,17 @@ export class ShowMeBridge {
     }
 
     this.onShowMe?.(tutorial, key);
-    src.postMessage({ type: 'dot-demo-start', key }, '*');
     this.log(`show-me ${key}: starting`);
+    // `runDemo` is the wrapper's demo runner, which broadcasts
+    // dot-demo-start / -end itself — see demoStarted()/demoEnded(). Nothing
+    // is posted from here, so there is exactly one place suppression is
+    // turned on and off no matter how the demo was triggered.
     try {
       const result = await this.runDemo(tutorial, key);
-      await this._settle();
-      src.postMessage({ type: 'dot-demo-end', key, ok: true }, '*');
       this.log(`show-me ${key}: done`);
       return result;
     } catch (err) {
       this.log(`show-me ${key}: FAILED (${err.message}) — plugin plays its MP4`);
-      await this._settle();
-      // error implies end: the plugin clears demoInProgress on either
-      src.postMessage({ type: 'dot-demo-error', key, error: String(err.message) }, '*');
       return null;
     }
   }

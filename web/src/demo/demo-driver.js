@@ -32,6 +32,15 @@ import { CursorPath, arcPath, runPath } from './timeline.js';
 import { coerce, validate, DemoValidationError } from './demo-lang.js';
 import { resolveTarget, evalCondition, TargetNotFound } from './resolvers.js';
 
+/**
+ * Verbs that can change the document. Only these are followed by a state
+ * snapshot for the mutation cap — see the note in runScript().
+ */
+const MUTATING_VERBS = new Set([
+  'tap', 'openMenu', 'choose', 'drag', 'marquee', 'type', 'carryCsv',
+  'clearSelection', 'waitFor',
+]);
+
 /** Safety caps for externally authored scripts (a script is untrusted input). */
 export const CAPS = {
   steps: 40,          // also enforced by the schema
@@ -774,10 +783,19 @@ export class DemoDriver {
         (this.stepTimings ??= []).push(
           { step: step.do, ms: Math.round(performance.now() - stepT0) });
         if (step.do === 'revert') { reverted = this._lastRevert; continue; }
-        // After every step: claim what changed as OURS (so revert knows what
-        // it may undo) and enforce the mutation cap by LIVE STATE DIFF, never
-        // by counting notifications — those drop (gotcha #5).
-        const d = this.diff(await this.snapshot(), this.base);
+        // Claim what changed as OURS (so revert knows what it may undo) and
+        // enforce the mutation cap by LIVE STATE DIFF, never by counting
+        // notifications — those drop (gotcha #5).
+        //
+        // Only after a step that CAN mutate the document, though. A snapshot
+        // costs a round trip per component and `say`/`beat`/`goto`/`peer`
+        // cannot change anything, so snapshotting after them spent wall clock
+        // on a question whose answer could not have changed — enough to push
+        // demos past the 60 s cap on a slow phone. A `waitFor` has just polled
+        // one, so the 500 ms cache serves it.
+        if (!MUTATING_VERBS.has(step.do)) continue;
+        const d = this.diff(
+          await this.snapshot({ maxAgeMs: step.do === 'waitFor' ? 500 : 0 }), this.base);
         for (const e of d) this.ownKeys.add(DemoDriver.diffKey(e));
         if (d.length > CAPS.mutations) {
           throw new Error(

@@ -211,7 +211,7 @@ class TutorialView extends React.Component {
             this.handleAccomplishment('Drag');
           }
         }.bind(this));
-    }.bind(this), 1500);
+    }.bind(this), 4000);   // gently: every poll competes with the demo for the phone
 
     // `class` declarations are not properties of `window`, so without this
     // the checklist's state is unreachable from the wrapper — and the P3
@@ -276,6 +276,12 @@ class TutorialView extends React.Component {
   }
 
   handleOtherNotification(iNotification) {
+    // DOT-FORK 7/7: gate at the NOTIFICATION, not just at the accomplishment.
+    // handleAttributeChange() below does async round trips before it decides
+    // anything, so a notification that arrives DURING a demo can finish its
+    // chain after suppression has lifted and check the task off anyway. That
+    // race is visible to a student as Dot's demonstration ticking their box.
+    if (window.DotShowMe && window.DotShowMe.demoInProgress) return { success: true };
     // Is the operation and type in the task descriptions. If so, we can treat it generically
     let tTask = taskDescriptions.descriptions.find(function (iDescription) {
       return iDescription.operation === iNotification.values.operation && !iDescription.requiresSpecialHandling && (!iDescription.prereq || this.isAccomplished(iDescription.prereq) && (!iDescription.constraints || iDescription.constraints.some(function (iConstraint) {
@@ -297,6 +303,8 @@ class TutorialView extends React.Component {
   }
 
   handleCodapNotification(iNotification) {
+    // DOT-FORK 7/7 (see handleOtherNotification): drop it on arrival.
+    if (window.DotShowMe && window.DotShowMe.demoInProgress) return { success: true };
 
     let tHandled = false,
         handleAttributeChange = function () {

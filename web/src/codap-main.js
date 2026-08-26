@@ -220,14 +220,27 @@ function setupDemo() {
     onCancel: () => driver.abort('engine cancelled the demo'),
   });
 
-  /** Everything funnels through here so only one demo can ever be in flight. */
+  /**
+   * Everything funnels through here so only one demo can ever be in flight —
+   * and so that checklist SUPPRESSION is turned on for every demo regardless
+   * of what started it (a "Show me." link, a debug button, the console, a
+   * test). Suppression belongs to the demo, not to the trigger: without this
+   * the plugin cheerfully checked a task off while Dot was demonstrating it.
+   */
   function runViaEngine(script, opts) {
     if (driver.active || pendingDemo) {
       return Promise.reject(Object.assign(new Error('a demo is already running'),
         { code: 'dot-demo-busy' }));
     }
+    const key = script?.demo ?? 'demo';
     return new Promise((resolve, reject) => {
-      pendingDemo = { script, opts, resolve, reject };
+      pendingDemo = {
+        script,
+        opts,
+        resolve: async (r) => { await demo.showme?.demoEnded(key, true); resolve(r); },
+        reject: async (e) => { await demo.showme?.demoEnded(key, false, e); reject(e); },
+      };
+      demo.showme?.demoStarted(key);
       engine.forceFire('dot-demo');
     });
   }
@@ -254,8 +267,15 @@ function setupDemo() {
       if (name === undefined && P1_DEMOS[set]) {
         const wasEnabled = engine.enabled;
         engine.enabled = false;
-        try { return await P1_DEMOS[set](driver, opts); }
-        finally { engine.enabled = wasEnabled; }
+        demo.showme?.demoStarted(set);           // suppress here too — see above
+        try {
+          const r = await P1_DEMOS[set](driver, opts);
+          await demo.showme?.demoEnded(set, true);
+          return r;
+        } catch (err) {
+          await demo.showme?.demoEnded(set, false, err);
+          throw err;
+        } finally { engine.enabled = wasEnabled; }
       }
       if (!scripts.size) await loadScripts(set);
       const key = `${set}:${name}`;
