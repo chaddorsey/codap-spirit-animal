@@ -122,3 +122,68 @@ Same question as #1, and worth asking together: on the official v3 tutorial
 page, drag an attribute to a graph axis by hand. Does the box tick every time?
 If these two are both real, the shipped v3 tutorials are under-reporting
 student progress and the CODAP team should hear about it.
+
+---
+
+## 3. `MakeScatterplot` straddles the 60 s wall-clock cap — shipping with its MP4
+
+**Recorded 2026-08-26 after well more than three full attempts, per the
+bail-out rule ("a Done-when item still failing after 3 full attempts").**
+
+### What the task is
+
+Tutorial 2's first task — "Make a scatterplot of height vs age" — is three
+heavy CODAP operations in one: create a graph, drop an attribute on x, drop a
+second on y. Every other tutorial-1 and tutorial-2 script is one or two.
+
+### Evidence
+
+The script is CORRECT: it has completed green, with an empty revert, at
+**50.4 s**:
+
+```
+say 1.2s | tap 9.4s | wait 0s | beat 1.5s | drag 8.0s | wait 0s |
+drag 4.6s | wait 0s | beat 1.2s | revert 17.8s | say 1.1s   -> ok, 50.4s
+```
+
+It also fails, on the same page and the same code, when CODAP happens to be
+slow. Three failing runs, by step:
+
+```
+tap 25.7s  drag 50.4s      (cap hit during the first drag)
+tap 11.2s  drag 28.5s      (cap hit during the first drag)
+tap 64.3s                  (cap hit inside the tool-shelf click alone)
+```
+
+**The same injected tool-shelf click has measured 9.4 s and 64.3 s on the same
+page.** That variance, not the script, is what decides the outcome.
+
+### What was done first, so this is not a lazy bail-out
+
+Four performance causes were found and fixed (commit "find the real cause of
+the wall-clock failures"), three of them ours: a dt clamp that made every clip
+run at a fifth of real speed under load; injected pointermove counts whose cost
+to CODAP is super-linear (26 moves 40.7 s, 8 moves 3.2 s); a
+`getBoundingClientRect()` per move that forced a full layout flush; and drags
+starting before a new graph had finished rendering. Those took SelectCases from
+32.5 s to 12.9 s, Rescale from 27.6 s to 8.6 s, and turned MakeLegend from a
+failure into a 22 s green. They took MakeScatterplot from "never finished" to
+"finishes when the machine cooperates".
+
+### Fallback taken
+
+Per the work order, the task ships with its MP4: a demo that exceeds the cap
+posts `dot-demo-error` and the plugin plays `MakeScatterplot.mp4`, which is
+verified working. The student is never worse off than today.
+
+### For Chad
+
+The cap (60 s) is a recorded decision and was not touched. Two things would
+settle this:
+
+1. Re-measure on a normal student machine that is not also running a dev
+   server, a headed automation browser and a proxy. The demo's own
+   choreography is about 12 s; everything else is CODAP.
+2. If it still straddles, the product question is yours: raise the cap for
+   multi-action tasks, split the task into two demonstrations, or leave it on
+   the MP4. All three are reasonable; none is mine to decide.
