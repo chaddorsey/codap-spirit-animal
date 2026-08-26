@@ -330,7 +330,7 @@ export class Injector {
    */
   async dragAttribute(from, to, opts = {}) {
     return this.dragPointer(from, to, {
-      steps: 12, stepMs: 45, useHandle: true,
+      steps: 8, stepMs: 60, useHandle: true,
       moveTarget: 'document', upOn: 'document', ...opts,
     });
   }

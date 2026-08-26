@@ -136,27 +136,43 @@ Tutorial 2's first task — "Make a scatterplot of height vs age" — is three
 heavy CODAP operations in one: create a graph, drop an attribute on x, drop a
 second on y. Every other tutorial-1 and tutorial-2 script is one or two.
 
-### Evidence
+### Evidence — SIX fresh attempts with the final code, 0 green
 
-The script is CORRECT: it has completed green, with an empty revert, at
-**50.4 s**:
+Re-run after every performance fix below was in place, on a quiet machine
+(other automation browsers closed), three attempts per configuration, each
+starting from the tutorial's real state with no graph:
+
+```
+12 injected moves per drag        8 injected moves per drag
+  say 1.2  tap 30.0  drag 27.4      say 1.9  tap 28.9  drag 41.6
+  say 2.8  tap 53.5                 say 1.2  tap 19.6  drag 36.9
+  say 0.2  tap  8.6  drag 43.3      say 0.7  tap 21.0  drag 23.5
+```
+
+All six hit the cap. The pattern is that **the task needs three CODAP
+mutations and each costs 20–40 s here**, in whichever order the slowness
+falls: run 2 above spent 53.5 s inside the tool-shelf click alone, while run 3
+had a fast 8.6 s click and lost the budget to the first drag instead.
+
+Reducing the injected move count from 12 to 8 did not help, which locates the
+cost: a drag onto a **freshly created, still-rendering graph** costs roughly
+5 s per move no matter how few moves there are. The same drag onto a settled
+graph costs 3.2 s in total.
+
+### It is the script's SIZE, not its correctness
+
+The script has completed green, with an empty revert, at **50.4 s**:
 
 ```
 say 1.2s | tap 9.4s | wait 0s | beat 1.5s | drag 8.0s | wait 0s |
 drag 4.6s | wait 0s | beat 1.2s | revert 17.8s | say 1.1s   -> ok, 50.4s
 ```
 
-It also fails, on the same page and the same code, when CODAP happens to be
-slow. Three failing runs, by step:
-
-```
-tap 25.7s  drag 50.4s      (cap hit during the first drag)
-tap 11.2s  drag 28.5s      (cap hit during the first drag)
-tap 64.3s                  (cap hit inside the tool-shelf click alone)
-```
-
-**The same injected tool-shelf click has measured 9.4 s and 64.3 s on the same
-page.** That variance, not the script, is what decides the outcome.
+Every individual action in it is verified: the click makes the graph, both
+drags land their attributes, the revert diff comes back empty. **The same
+injected tool-shelf click has measured 8.6 s and 64.3 s on the same page** —
+the variance, not the script, decides the outcome, and three mutations give it
+three chances to go wrong.
 
 ### What was done first, so this is not a lazy bail-out
 
@@ -175,6 +191,13 @@ failure into a 22 s green. They took MakeScatterplot from "never finished" to
 Per the work order, the task ships with its MP4: a demo that exceeds the cap
 posts `dot-demo-error` and the plugin plays `MakeScatterplot.mp4`, which is
 verified working. The student is never worse off than today.
+
+### Everything else in the set is green
+
+The other five shared scatterplot scripts pass on the same page, same code,
+each with an empty revert: SelectCases, HideUnselected (hidden cases
+restored), Deselect, Rescale, MakeLegend. MakeScatterplot is the only one that
+asks for three mutations in a single demonstration.
 
 ### For Chad
 

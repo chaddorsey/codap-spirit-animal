@@ -447,6 +447,9 @@ export class DemoDriver {
    */
   async tap(el, { at, clickOpts } = {}) {
     this._checkAbort();
+    // Same reason as dragAttribute: clicking while CODAP is still busy makes
+    // the click itself cost many seconds. Wait for frames before committing.
+    await this._waitForIdle();
     const r = el.getBoundingClientRect();
     const pt = at ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     const target = this._toHost(pt);
@@ -547,7 +550,7 @@ export class DemoDriver {
     try {
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         // few injected moves, for the reason in inject.dragAttribute
-        steps: 12, stepMs: 55, settleMs: 320,
+        steps: 8, stepMs: 70, settleMs: 320,
         onStep: (pt) => {
           const h = this._toHost(pt);
           this.cursorPt = h;
@@ -626,7 +629,20 @@ export class DemoDriver {
     let foreign = foreignCount(d);
     while (d.some(isOwn) && clicks < cap) {
       if (embodied && !this.aborted) {
-        await this.tap(undo, { clickOpts: { full: false } });
+        // The FIRST undo gets the full tap — paw raised, clip, contact. After
+        // that her paw is already on the button, so subsequent presses are a
+        // short press-and-release rather than another 1.4 s reach. Undoing a
+        // three-mutation demo was spending 15-18 s of a 60 s budget replaying
+        // the same gesture, and that is time the demonstration needs.
+        if (clicks === 0) {
+          await this.tap(undo, { clickOpts: { full: false } });
+        } else {
+          this.cursor.press(1);
+          await this.inj.click(undo, { full: false });
+          await sleep(160);
+          this.cursor.press(0);
+          await sleep(500);
+        }
       } else {
         await this.inj.click(undo, { full: false });
         await sleep(700);
@@ -705,7 +721,9 @@ export class DemoDriver {
       if (dc) await this.api('create', `dataContext[${dc}].selectionList`, []);
     }
 
-    if (d.length) this.log(`revert residue: ${JSON.stringify(d)}`);
+    if (d.length) {
+      this.log(`revert residue after ${clicks} click(s): ${JSON.stringify(d)}`);
+    }
     return { clicks, redone, residue: d, ownResidue: d.filter(isOwn) };
   }
 
@@ -832,6 +850,10 @@ export class DemoDriver {
       try { anchor = this._center((await this._resolve(firstSpec)).el); }
       catch { /* side choice falls back to screen centre */ }
     }
+
+    // Let the page settle BEFORE the clock starts. A demo launched while CODAP
+    // is still rendering pays for that work inside its own wall-clock budget.
+    await this._waitForIdle({ maxMs: 6000 });
 
     const watch = new CancelWatch((why) => this.abort(why));
     const startedAt = performance.now();
