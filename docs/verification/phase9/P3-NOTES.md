@@ -14,6 +14,18 @@ P2, the work order is unedited; this records what running the thing taught.
 | a second "Show me." mid-demo gets `dot-demo-busy`, link stays alive | **yes** |
 | a forced driver failure plays that task's MP4 | **yes** — `MakeGraph.mp4`, from our vendored copy |
 
+> **CORRECTED 2026-08-26 — read this before the section below.** The analysis
+> that follows concluded "it is CODAP's own work, on the main thread" and
+> stopped there. That was premature. Three of the four real causes were OURS
+> and are now fixed: a `dt` clamp that made every animation clip run at a fifth
+> of real speed under load, injected `pointermove` counts whose cost to CODAP
+> is super-linear (26 moves 40.7 s vs 8 moves 3.2 s), and a
+> `getBoundingClientRect()` per move that forced a full layout flush. See
+> `P4-NOTES.md` and the commit "find the real cause of the wall-clock
+> failures". Demos are now roughly two to four times faster than the numbers
+> below. CODAP's variance is real and remains the limiting factor, but the
+> measurements in this section were taken with our own brakes on.
+
 ## The one soft spot: the 60 s wall-clock cap
 
 Demos complete green roughly three to five times out of five per pass. The

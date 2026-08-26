@@ -5,24 +5,49 @@ where the result is short of its criterion this says so plainly.
 
 ## Where P4's criteria stand
 
-**"the six scripts run green against a family-B document/dataset"** — four of
-six, verified live on the nhanes dataset in the forked tutorial-2 document:
+**"the six scripts run green against a family-B document/dataset"** — five of
+six on the final run, verified live on the nhanes dataset in the forked
+tutorial-2 document, every one with an empty revert diff:
 
 | script | result |
 |---|---|
-| `SelectCases` (marquee a subset) | **green**, 32.5 s, residue 0 |
-| `HideUnselected` (inspector menu) | **green**, 41.8 s and 60.4 s, residue 0, hidden cases restored |
-| `Deselect` (click empty plot) | **green**, 38.9 s, residue 0 |
-| `Rescale` (inspector button) | **green**, 27.6 s, residue 0, 1 undo click |
-| `MakeLegend` (attribute → plot) | drop mechanism **fixed and proven in isolation**; the end-to-end run hit the 60 s cap |
-| `MakeScatterplot` (graph + two axes) | **exceeds the 60 s cap**, three times running |
+| `SelectCases` (marquee a subset) | **green** — 12.9 s / 33.7 s across runs, residue 0 |
+| `HideUnselected` (inspector menu) | **green** — 29.4 s / 57.1 s, residue 0, hidden cases restored |
+| `Deselect` (click empty plot) | **green** — 19.8 s / 22.3 s, residue 0 |
+| `Rescale` (inspector button) | **green** — 8.6 s / 10.9 s, residue 0 |
+| `MakeLegend` (attribute → plot) | **green** — 22.0 s / 36.4 s, residue 0 (was failing; see the aim-low fix below) |
+| `MakeScatterplot` (graph + two axes) | **green once at 50.4 s**, fails when CODAP is slow — bailed out, ships with its MP4 (`BAILOUTS.md` #3) |
 
 **"tutorial 2 fully Dot-powered (P3 criteria)"** — the fork, the handshake, the
 document and the task list are all in place and verified (the plugin
 handshakes as tutorial 2 and renders all six tasks), and the P3 machinery is
 the same code path already verified there. The two scripts above are the gap.
 
-## MakeScatterplot does not fit the 60 s cap
+## What actually made demos slow — three of four causes were ours
+
+The first version of this section blamed CODAP's main-thread stalls and stopped
+there. Digging further found four causes, and fixed all four (commit "find the
+real cause of the wall-clock failures"):
+
+1. **The `dt` clamp was acting as a speed limit.** The render loop clamped `dt`
+   to 50 ms as a guard against a backgrounded tab. When CODAP drags the page to
+   ~4 fps, the animation mixer still advanced only 50 ms per frame — so clips
+   ran at a FIFTH of real speed and a 1.4 s tap took 7–33 s of wall clock.
+2. **Every injected `pointermove` costs CODAP dearly, super-linearly.** Same
+   drag, same page, all three landing correctly: **26 moves → 40.7 s, 14 moves
+   → 18.7 s, 8 moves → 3.2 s.** Smoothness belongs to the paw and the print,
+   which redraw per frame; the injected stream needs far fewer samples.
+3. **`_toHost()` called `getBoundingClientRect()` per move**, forcing a
+   synchronous layout flush of the whole page including CODAP's pending work.
+   That one call was a 3 s drag in isolation versus 58 s inside a demo.
+4. **Drags started before a new graph had finished rendering** cost 5–10× what
+   the same drag costs a moment later (39.5 s vs 8.0 s). Drags now wait for the
+   page to actually be drawing again.
+
+Net effect: SelectCases 32.5 s → 12.9 s, Rescale 27.6 s → 8.6 s, MakeLegend
+failure → 22 s green, MakeScatterplot never-finishing → 50.4 s green.
+
+## MakeScatterplot still straddles the 60 s cap
 
 That task is three heavy CODAP operations in one: create a graph, drop an
 attribute on x, drop another on y. Each costs a multi-second main-thread stall
@@ -31,9 +56,11 @@ a graph), plus Dot's travel and the revert. Three separate runs ended at the
 cap; an instrumented one had reached `x = Age` with `y` still empty when the
 clock ran out.
 
-Trimming the script — dropping its `goto`, shortening its waits from 12 s to
-8 s, and its beat from 1.6 s to 1.2 s — did not change the outcome, because the
-cost is not in the choreography.
+Trimming the script did not change the outcome on its own; the four fixes
+above did, and it has since completed green at 50.4 s. But it still fails when
+CODAP is slow — **the same injected tool-shelf click has measured 9.4 s and
+64.3 s on the same page** — so it is bailed out with evidence in `BAILOUTS.md`
+#3 and ships with its MP4.
 
 The cap is a recorded decision and was not touched. On this machine the task
 ships with its MP4, which is what the fallback exists for; on a faster machine
