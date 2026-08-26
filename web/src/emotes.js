@@ -5,6 +5,13 @@ let fontPromise;
 const loadFont = () =>
   (fontPromise ??= new FontLoader().loadAsync('/fonts/helvetiker_bold.typeface.json'));
 
+/**
+ * Warm the font before anyone needs it. The first `emote()` otherwise pays the
+ * fetch+parse inline, which showed up as ~1.5 s on the first `say` step of a
+ * demonstration — wall clock a demo cannot spare (Phase 9).
+ */
+export const preloadEmoteFont = () => loadFont();
+
 const COLORS = {
   '?': { color: 0x2fa8d5, emissive: 0x0e5d7a },   // curious teal
   '!': { color: 0xff7a59, emissive: 0x8f2e14 },   // urgent coral

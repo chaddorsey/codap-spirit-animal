@@ -195,22 +195,63 @@ class TutorialView extends React.Component {
     // Reported for Chad in docs/verification/phase9/BAILOUTS.md — it very
     // likely affects the official v3 tutorials too.
     this.dotContextBaseline = null;
-    this.dotContextPoll = setInterval(function () {
-      if (!taskDescriptions.taskExists('Drag') || this.isAccomplished('Drag')) {
-        clearInterval(this.dotContextPoll);
-        return;
-      }
+    this.dotTaskPoll = setInterval(function () {
       if (window.DotShowMe && window.DotShowMe.demoInProgress) return;
-      codapInterface.sendRequest({ action: 'get', resource: 'dataContextList' })
-        .then(function (iResult) {
-          if (!iResult || !iResult.success) return;
-          var n = (iResult.values || []).length;
-          if (this.dotContextBaseline === null) { this.dotContextBaseline = n; return; }
-          if (n > this.dotContextBaseline) {
-            this.dotContextBaseline = n;
-            this.handleAccomplishment('Drag');
-          }
-        }.bind(this));
+      var wantsDrag = taskDescriptions.taskExists('Drag') && !this.isAccomplished('Drag');
+      var wantsAttrs = (taskDescriptions.taskExists('AssignAttribute')
+                         && !this.isAccomplished('AssignAttribute'))
+                    || (taskDescriptions.taskExists('SecondAttribute')
+                         && !this.isAccomplished('SecondAttribute'))
+                    || (taskDescriptions.taskExists('MakeScatterplot')
+                         && !this.isAccomplished('MakeScatterplot'));
+      if (!wantsDrag && !wantsAttrs) { clearInterval(this.dotTaskPoll); return; }
+
+      if (wantsDrag) {
+        codapInterface.sendRequest({ action: 'get', resource: 'dataContextList' })
+          .then(function (iResult) {
+            if (!iResult || !iResult.success) return;
+            var n = (iResult.values || []).length;
+            if (this.dotContextBaseline === null) { this.dotContextBaseline = n; return; }
+            if (n > this.dotContextBaseline) {
+              this.dotContextBaseline = n;
+              this.handleAccomplishment('Drag');
+            }
+          }.bind(this));
+      }
+
+      if (wantsAttrs) {
+        // Same rule upstream applies on `attributeChange`, but driven by a poll
+        // rather than by that notification's async chain, which does not fire
+        // dependably on v3 — see docs/verification/phase9/BAILOUTS.md. A drag
+        // that visibly landed Mass on the x axis left the task unchecked, while
+        // invoking the very same handler by hand checked it immediately.
+        codapInterface.sendRequest({ action: 'get', resource: 'componentList' })
+          .then(function (iResult) {
+            if (!iResult || !iResult.success) return;
+            var reqs = (iResult.values || [])
+              .filter(function (c) { return c.type === 'graph'; })
+              .map(function (c) { return { action: 'get', resource: 'component[' + c.id + ']' }; });
+            if (!reqs.length) return;
+            codapInterface.sendRequest(reqs).then(function (iResults) {
+              var maxAttrs = 0;
+              (iResults || []).forEach(function (r) {
+                var n = 0;
+                ['xAttributeName', 'yAttributeName', 'y2AttributeName', 'legendAttributeName']
+                  .forEach(function (k) { if (r.values && r.values[k]) n++; });
+                maxAttrs = Math.max(maxAttrs, n);
+              });
+              if (maxAttrs >= 2) {
+                if (taskDescriptions.taskExists('MakeScatterplot')) {
+                  this.handleAccomplishment('MakeScatterplot');
+                }
+                this.handleAccomplishment('SecondAttribute');
+              }
+              if (maxAttrs >= 1 && taskDescriptions.taskExists('AssignAttribute')) {
+                this.handleAccomplishment('AssignAttribute');
+              }
+            }.bind(this));
+          }.bind(this));
+      }
     }.bind(this), 4000);   // gently: every poll competes with the demo for the phone
 
     // `class` declarations are not properties of `window`, so without this

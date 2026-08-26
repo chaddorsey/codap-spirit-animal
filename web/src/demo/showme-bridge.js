@@ -68,11 +68,13 @@ export class ShowMeBridge {
    * one thing demo-then-revert exists to prevent.
    */
   demoStarted(key) {
+    this._openKey = key;
     this.broadcast({ type: 'dot-demo-start', key });
     this.log(`demo ${key}: suppression on`);
   }
 
   async demoEnded(key, ok, error) {
+    this._openKey = null;
     await this._settle();
     this.broadcast(ok
       ? { type: 'dot-demo-end', key, ok: true }
@@ -114,13 +116,24 @@ export class ShowMeBridge {
     // dot-demo-start / -end itself — see demoStarted()/demoEnded(). Nothing
     // is posted from here, so there is exactly one place suppression is
     // turned on and off no matter how the demo was triggered.
+    this._requested = key;
     try {
       const result = await this.runDemo(tutorial, key);
       this.log(`show-me ${key}: done`);
       return result;
     } catch (err) {
       this.log(`show-me ${key}: FAILED (${err.message}) — plugin plays its MP4`);
+      // A failure BEFORE the runner started (a missing script, a validation
+      // error, a forced test failure) never reaches demoEnded(), so nothing
+      // would tell the plugin to fall back and the student would be left with
+      // a link that did nothing. The MP4 is the floor: make sure it plays.
+      if (this._openKey !== key) {
+        src.postMessage({ type: 'dot-demo-error', key, error: String(err.message) }, '*');
+        this.log(`show-me ${key}: sent dot-demo-error (demo never started)`);
+      }
       return null;
+    } finally {
+      this._requested = null;
     }
   }
 

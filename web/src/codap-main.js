@@ -5,6 +5,7 @@ import { BehaviorEngine } from './behavior-engine.js';
 import { makeBehaviors, MIND } from './behaviors.js';
 import { Whisker } from './whisker.js';
 import { analyzeDataset, suggestMoves } from './insight.js';
+import { preloadEmoteFont } from './emotes.js';
 import { Injector, sameOrigin } from './inject.js';
 import { DemoDriver } from './demo/demo-driver.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
@@ -33,6 +34,8 @@ const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
 axo.setPixelHeight(150);
 axo.setPosition(window.innerWidth - 220, window.innerHeight - 160);
+
+preloadEmoteFont();          // never pay for it inside a demo's first `say`
 
 const bridge = new CodapBridge(document.getElementById('codap'));
 

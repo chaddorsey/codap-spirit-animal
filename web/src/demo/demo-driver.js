@@ -855,7 +855,10 @@ export class DemoDriver {
         const t = await this._resolve(step.target);
         const c = t.at ? this._toHost(t.at) : this._center(t.el);
         this.axo.lookAt(c.x, c.y);
-        await this.axo.play('head_tilt');
+        // A glance, not a scene: start the tilt and move on. Awaiting the whole
+        // clip spent ~1.9 s of the demo's wall-clock budget on a look.
+        this.axo.play('head_tilt');
+        await this._sleep(600);
         return;
       }
 

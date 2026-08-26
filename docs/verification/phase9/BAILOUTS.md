@@ -80,3 +80,45 @@ satisfiable inside our wrapper. It is a workaround in OUR fork, not a fix.
 2. If it does not, this is a v3 regression worth reporting to the CODAP team —
    it affects the shipped tutorials, not just this project.
 3. If it does, the gap is only in the API path and our poll can be dropped.
+
+---
+
+## 2. `attributeChange` reaches the plugin but its detection chain does not fire
+
+**Found 2026-08-26, same session, and it is the same family as #1.**
+
+Tutorial 1's `AssignAttribute` and `SecondAttribute` are detected by an ASYNC
+chain the plugin runs when an `attributeChange` notification arrives: fetch
+`componentList`, then batch-fetch each graph, count assigned attributes,
+then check the task off. Measured behaviour on v3.1.0:
+
+- the drag lands — `component[id]` reports `xAttributeName: "Mass"`,
+  `yAttributeName: "Sleep"`
+- the notification ARRIVES at the plugin — logged
+  `{ op: "attributeChange", type: "DG.GraphView" }` with suppression off
+- and `handleAccomplishment` is **never called**; the boxes stay unchecked
+
+Invoking the very same handler by hand a few seconds later,
+`tv.handleCodapNotification({values:{operation:'attributeChange', …}})`, checks
+the task immediately and correctly (`SecondAttribute` accomplished). So the
+logic is sound and the chain simply does not complete when driven by the live
+notification. It checked correctly in one earlier live run, so it is
+intermittent rather than dead.
+
+### What the implementation does meanwhile
+
+The fork's poll (originally added for `Drag`) now also computes the attribute
+count itself every 4 s, using upstream's own rule — 1 assigned attribute means
+`AssignAttribute`, 2 or more means `SecondAttribute` (and `MakeScatterplot`
+where that task exists). Suppressed during demos like every other completion
+path, and it stops once there is nothing left to detect.
+
+With that in place, all five tutorial-1 tasks check reliably when performed
+manually, verified end to end.
+
+### For Chad
+
+Same question as #1, and worth asking together: on the official v3 tutorial
+page, drag an attribute to a graph axis by hand. Does the box tick every time?
+If these two are both real, the shipped v3 tutorials are under-reporting
+student progress and the CODAP team should hear about it.
