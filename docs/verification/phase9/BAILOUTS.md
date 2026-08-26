@@ -194,6 +194,31 @@ The tutorial-2 layout fills the workspace with the plugin panel and the case
 table, so there is nowhere to drop. Clearing a space would itself cost the
 mutations this was meant to save.
 
+**Idea 3 — cut the injected move count to the minimum.** Earlier numbers (26
+moves 40.7 s, 8 moves 3.2 s) suggested cost scaled with move count, so the
+floor was worth finding. Timing ONE drag onto a freshly created graph, three
+move counts, same page, same run — all three landed `x = Age` correctly:
+
+```
+5 moves -> 77.4 s      3 moves -> 26.5 s      2 moves -> 32.6 s
+```
+
+**This overturns the per-move model.** Five moves cost more than two; three
+cost less than either. The move count is not the driver — CODAP's variance is,
+and a SINGLE drag onto a fresh graph ranges from 26 s to 77 s. One drag alone
+can exceed the whole 60 s budget.
+
+That closes the question for good: no amount of implementation tuning makes a
+three-mutation task fit a 60 s cap when one of its primitives can cost 77 s on
+its own. **This is CODAP's cost, not the demo's.**
+
+**The implication is wider than MakeScatterplot**, and Chad should have it:
+every script is exposed to the same variance. The five greens below are real
+and were verified with empty reverts, but on a bad draw any of them can hit the
+cap too. That is precisely what the MP4 fallback is for, and it means the
+fallback is a designed steady-state property of the system on this machine, not
+a concession specific to one task.
+
 **Nine fresh attempts with the final code, zero green.** The bail-out stands.
 
 ### It is the script's SIZE, not its correctness
