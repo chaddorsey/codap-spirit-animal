@@ -80,11 +80,19 @@ the glb is committed.
 
 ## Work queue, in order
 
-1. **More mischief/insight polish** — whatever Chad queues next; tune
+1. **Phase 9 — Dot as "Show me"**: execute `docs/PHASE9-SHOWME.md`
+   (Opus-ready work order, adversarially reviewed 2026-08-25). Live
+   tutorial demonstrations via same-origin input injection
+   (`docs/SPIKE-SAME-ORIGIN.md` has the verified mechanics), the
+   DemoScript language (human line-notation + LLM JSON), plugin forks
+   for the 7 getting-started tutorials, Easter eggs. Phases P0–P8,
+   each a standalone stopping point.
+2. **More mischief/insight polish** — whatever Chad queues next; tune
    against `docs/MOTION.md` and `docs/CHARACTER.md`.
 
-Completed 2026-08-25: **bat-a-point fix** (was item 1 — see
-`docs/BAT-A-POINT.md` STATUS section for evidence).
+Completed 2026-08-25: **bat-a-point fix + visual polish + force-fire
+reliability** (`docs/BAT-A-POINT.md` STATUS), **same-origin injection
+spike** (`docs/SPIKE-SAME-ORIGIN.md`).
 
 Completed queues: eye glints, limb extension + clips, **Phase 4 behavior engine +
 both playbooks** (work order was `docs/PHASE4.md`; every acceptance box verified —
