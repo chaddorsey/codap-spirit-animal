@@ -35,7 +35,9 @@
   </style>
 </head>
 <body>
-  <iframe id="codap" src="https://codap3.concord.org/?embeddedServer=yes"></iframe>
+  <!-- cross-origin CODAP; codap-main.js sets src from data-codap-src so all
+       three wrapper pages take the same path (see codap-same.html). -->
+  <iframe id="codap" data-codap-src="https://codap3.concord.org/?embeddedServer=yes"></iframe>
   <canvas id="stage"></canvas>
 
   <div id="panel">

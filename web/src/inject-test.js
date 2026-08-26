@@ -22,9 +22,12 @@ const iframe = document.getElementById('codap');
 // resolves against CODAP's own registry and cannot reach our copies).
 // `?doc=/tutorial-docs/get_started.codap` exercises it.
 const DOC = new URLSearchParams(location.search).get('doc');
-if (DOC) {
-  iframe.src = `/codap/?embeddedServer=yes#file=${location.origin}${DOC}`;
-}
+// The frame carries no src in the HTML: adding a hash after it has already
+// started loading is a same-document change, and CODAP never sees the #file=
+// it booted without (measured — the document silently came up empty).
+iframe.src = DOC
+  ? `/codap/?embeddedServer=yes#file=${location.origin}${DOC}`
+  : '/codap/?embeddedServer=yes';
 
 const bridge = new CodapBridge(iframe);
 const out = document.getElementById('out');

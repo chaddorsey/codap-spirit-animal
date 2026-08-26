@@ -10,6 +10,24 @@ import { DemoDriver } from './demo/demo-driver.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
+import { ShowMeBridge } from './demo/showme-bridge.js';
+
+// Phase 9 P3: `?tutorial=N` loads our rewritten copy of that tutorial's
+// document — the one whose embedded plugin URL points at the fork — through
+// the mechanism P0 verified: `#file=<ABSOLUTE url>` on the CODAP iframe.
+// (`examples:` only resolves against CODAP's own registry and cannot reach
+// our copies.) Set before the bridge is constructed so it binds the right src.
+const TUTORIAL = new URLSearchParams(location.search).get('tutorial');
+const TUTORIAL_DOCS = { 1: '/tutorial-docs/get_started_dot.codap' };
+{
+  const el = document.getElementById('codap');
+  // codap.html is the cross-origin page and names its own CODAP; the
+  // same-origin pages leave the attribute off entirely (see the HTML).
+  const base = el.dataset.codapSrc ?? '/codap/?embeddedServer=yes';
+  el.src = TUTORIAL && TUTORIAL_DOCS[TUTORIAL]
+    ? `${base}#file=${location.origin}${TUTORIAL_DOCS[TUTORIAL]}`
+    : base;
+}
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -171,7 +189,13 @@ function setupDemo() {
     log: (t) => logLine(`demo: ${t}`, '#1c63d6') });
 
   const api = (a, r, v, o) => driver.api(a, r, v, o);
-  driver.csvPayload = DEMO_CSV;
+  // In a real tutorial document the `Drag` task is about the tutorial's OWN
+  // csv, so that is what Dot carries in; the standalone Mammals fixture is
+  // only for the debug page, where no tutorial plugin is present.
+  driver.csvPayload = TUTORIAL
+    ? { url: `${location.origin}/tutorial-plugins/onboarding/resources/mammals.csv`,
+        title: 'Mammals' }
+    : DEMO_CSV;
 
   // --- the demo runs as a BEHAVIOR, so the engine arbitrates it -----------
   // `ignoreActivity: true` is not optional: without it the engine cancels the
@@ -265,6 +289,25 @@ function setupDemo() {
     sync: () => driver.syncReport(),
     api,
   };
+  // --- the "Show me." handoff -------------------------------------------
+  // A forked tutorial plugin handshakes with us and hands its Show me. clicks
+  // over; anything that fails comes straight back as dot-demo-error and the
+  // plugin plays its canned MP4, so the student is never worse off than today.
+  const showme = new ShowMeBridge({
+    runDemo: (tutorial, key) => {
+      if (demo.failNextDemo) {            // P3 test hook: force the MP4 path
+        demo.failNextDemo = false;
+        return Promise.reject(new Error('forced driver failure (test hook)'));
+      }
+      return demo.run(`tutorial${tutorial}`, key);
+    },
+    isBusy: () => driver.active || !!pendingDemo,
+    snapshot: () => driver.snapshot(),
+    log: (t) => logLine(`showme: ${t}`, '#1c63d6'),
+  });
+  showme.start();
+  demo.showme = showme;
+
   window.__demo = demo;
   window.__inj = inj;
   logLine('same-origin CODAP — window.__demo available', '#1c63d6');

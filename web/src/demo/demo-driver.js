@@ -185,7 +185,18 @@ export class DemoDriver {
    * which components exist, where they are, what is on their axes, and what
    * is selected. NOT notification counts (they drop — gotcha #5).
    */
-  async snapshot() {
+  /**
+   * @param {object} [opts]
+   * @param {number} [opts.maxAgeMs=0] reuse a recent snapshot instead of
+   *   re-reading. A snapshot costs N+1 API round trips, and `waitFor` polls
+   *   it in a loop — without this, a Drag demo spent most of its 60 s budget
+   *   asking CODAP the same question (measured: it blew the wall-clock cap).
+   */
+  async snapshot({ maxAgeMs = 0 } = {}) {
+    if (maxAgeMs > 0 && this._snap
+        && performance.now() - this._snap.at < maxAgeMs) {
+      return this._snap.value;
+    }
     const list = await this.api('get', 'componentList');
     const contexts = await this.api('get', 'dataContextList');
     const out = {
@@ -194,9 +205,16 @@ export class DemoDriver {
       // show — the diff has to be able to see it to know it is still there.
       contexts: (contexts?.values ?? []).map((c) => c.name).sort(),
     };
-    for (const item of list?.values ?? []) {
-      const c = await this.api('get', `component[${item.id}]`);
-      const v = c?.values ?? {};
+    // Fetch the components CONCURRENTLY. A snapshot is taken after every step
+    // and polled inside `waitFor`, so N+1 serial round trips over a phone that
+    // sometimes takes seconds to answer was the single biggest cost in a demo
+    // — enough to push the `Drag` demonstration past its 60 s cap.
+    const items = list?.values ?? [];
+    const props = await Promise.all(
+      items.map((item) => this.api('get', `component[${item.id}]`)));
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const v = props[i]?.values ?? {};
       out.components.push({
         id: item.id, type: item.type, title: v.title,
         left: v.position?.left, top: v.position?.top,
@@ -207,6 +225,7 @@ export class DemoDriver {
       });
     }
     out.components.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    this._snap = { at: performance.now(), value: out };
     return out;
   }
 
@@ -317,6 +336,7 @@ export class DemoDriver {
     this.samples = [];
     this.allSamples = [];
     this.tapErrors = [];
+    this.stepTimings = [];
     // ids/names this demo creates itself — the ONLY things revert is allowed
     // to delete outright when Undo will not reach them
     this.created = { contexts: [], components: [] };
@@ -464,19 +484,28 @@ export class DemoDriver {
    * sees Dot's paw, the paw print and the real UI feedback travelling
    * together.
    */
-  async dragAttribute(srcEl, dstEl, opts = {}) {
+  /**
+   * @param {Element} srcEl
+   * @param {Element|{x,y}} dstElOrPoint  a resolver may hand us a POINT when
+   *   the zone's centre is under another tile (see resolvers.clearPointIn)
+   */
+  async dragAttribute(srcEl, dstElOrPoint, opts = {}) {
     this._checkAbort();
     const sr = srcEl.getBoundingClientRect();
     const start = this._toHost({ x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 });
     await this.goTo(start, { sec: 0.8 });
     await sleep(160);
     this._checkAbort();
-    const dst = this._center(dstEl);
+    const dstPt = dstElOrPoint?.getBoundingClientRect
+      ? (() => { const r = dstElOrPoint.getBoundingClientRect();
+                 return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()
+      : dstElOrPoint;
+    const dst = this._toHost(dstPt);
     this.axo.lookAt(dst.x, dst.y);
     this.timelineActive = true;
     this.phase = 'drag';
     try {
-      return await this.inj.dragAttribute(srcEl, dstEl, {
+      return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         steps: 26, stepMs: 34, settleMs: 320,
         onStep: (pt) => {
           const h = this._toHost(pt);
@@ -740,7 +769,10 @@ export class DemoDriver {
         if (performance.now() - startedAt > CAPS.wallClockSec * 1000) {
           throw new Error(`demo exceeded ${CAPS.wallClockSec}s wall clock`);
         }
+        const stepT0 = performance.now();
         await this._step(step);
+        (this.stepTimings ??= []).push(
+          { step: step.do, ms: Math.round(performance.now() - stepT0) });
         if (step.do === 'revert') { reverted = this._lastRevert; continue; }
         // After every step: claim what changed as OURS (so revert knows what
         // it may undo) and enforce the mutation cap by LIVE STATE DIFF, never
@@ -756,7 +788,8 @@ export class DemoDriver {
         for (const s of script.inverseSteps) await this._step(s);
       }
       return { ok: true, demo: script.demo, sync: this.syncReport(),
-               revert: reverted, sec: +((performance.now() - startedAt) / 1000).toFixed(1) };
+               revert: reverted, timings: this.stepTimings,
+               sec: +((performance.now() - startedAt) / 1000).toFixed(1) };
     } catch (err) {
       error = err;
       // A cancelled or broken demo still cleans up after itself — an abandoned
@@ -868,15 +901,17 @@ export class DemoDriver {
 
       case 'waitFor': {
         const deadline = performance.now() + step.timeoutSec * 1000;
+        const needsSelection = /^selection/.test(step.cond);
         for (;;) {
           this._checkAbort();
-          const now = await this.snapshot();
-          const extra = { selectionCount: await this.selectionCount() };
+          const now = await this.snapshot({ maxAgeMs: 400 });
+          const extra = needsSelection
+            ? { selectionCount: await this.selectionCount() } : {};
           if (evalCondition(step.cond, this.base, now, extra)) return;
           if (performance.now() > deadline) {
             throw new Error(`waitFor "${step.cond}" timed out after ${step.timeoutSec}s`);
           }
-          await this._sleep(250);
+          await this._sleep(500);
         }
       }
 
@@ -943,8 +978,9 @@ export class DemoDriver {
       } finally { this.timelineActive = false; this.phase = 'idle'; }
       return;
     }
-    // attribute (dnd-kit) — the tutorial centrepiece
-    return this.dragAttribute(from.dragEl ?? from.el, to.el,
+    // attribute (dnd-kit) — the tutorial centrepiece. `to.at` is the resolver's
+    // reachable point, which is NOT the zone's centre when a tile overlaps it.
+    return this.dragAttribute(from.dragEl ?? from.el, to.at ?? to.el,
       profile === 'brisk' ? { steps: 18, stepMs: 26 } : {});
   }
 
@@ -955,6 +991,54 @@ export class DemoDriver {
    * unless Chad rejects a recording of this (a bail-out item, not a decision
    * for this phase).
    */
+  /**
+   * Open a case table on `contextName` and make sure it actually BOUND.
+   *
+   * Creating a case table too soon after `dataContextFromURL` returns
+   * `success: true` and yields an EMPTY, unbound table — no columns, no
+   * attribute pills, and `component[id]` has no `dataContext` field at all.
+   * `update component[id] { dataContext }` does not repair it (also
+   * `success: true`, also no effect). The only cure measured is to wait for
+   * the context's attributes to be readable and then create the table, so
+   * that is what this does — and it VERIFIES by looking for the pills, since
+   * "success" plainly does not mean bound.
+   */
+  async _ensureBoundTable(contextName) {
+    const doc = this.iframe.contentDocument;
+    const pillCount = () =>
+      doc.querySelectorAll('[data-testid^="codap-attribute-button"]').length;
+    // 1. wait until the context really has attributes
+    await this.waitFor(async () => {
+      const dc = await this.api('get', `dataContext[${contextName}]`);
+      return dc?.values?.collections?.[0]?.attrs?.length ? dc.values : null;
+    }, { timeoutSec: 8, what: `${contextName} attributes` });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = new Set(((await this.api('get', 'componentList'))?.values ?? [])
+        .map((c) => String(c.id)));
+      const made = await this.api('create', 'component', {
+        type: 'caseTable', dataContext: contextName,
+        position: { left: 6, top: 6 }, dimensions: { width: 620, height: 220 },
+      });
+      for (let waited = 0; waited < 2600 && pillCount() === 0; waited += 200) {
+        await sleep(200);
+      }
+      // The reply is often dropped, and an id we never learned is an id revert
+      // cannot clean up — so find the table by diffing rather than trusting it.
+      let id = made?.success ? made.values.id : null;
+      if (id == null) {
+        const found = ((await this.api('get', 'componentList'))?.values ?? [])
+          .find((c) => /caseTable/i.test(c.type) && !before.has(String(c.id)));
+        id = found?.id ?? null;
+      }
+      if (id != null) this.created.components.push(id);
+      if (pillCount() > 0) return id;
+      this.log(`case table came up unbound (attempt ${attempt + 1}) — retrying`);
+      if (id != null) await this.api('delete', `component[${id}]`);
+      await sleep(1200);
+    }
+    throw new Error(`could not open a bound case table on ${contextName}`);
+  }
+
   async _carryCsv(toSpec) {
     const payload = this.csvPayload;
     if (!payload) throw new Error('carrycsv: no csvPayload configured');
@@ -964,19 +1048,59 @@ export class DemoDriver {
     try {
       await this.goTo(dst, { sec: 1.4, profile: 'teaching' });
       await sleep(250);
-      const made = await this.api('create', 'dataContext', payload.context);
-      if (!made?.success) {
-        throw new Error(`carrycsv: import failed ${JSON.stringify(made?.values)}`);
+      const before = new Set(((await this.api('get', 'dataContextList'))?.values ?? [])
+        .map((c) => c.name));
+
+      let made;
+      if (payload.url) {
+        // The faithful version: import the tutorial's OWN csv, the same way a
+        // real drop does. Short reply window on purpose — the result is
+        // verified by reading dataContextList either way, so waiting the full
+        // write timeout for a reply buys nothing but wall clock.
+        made = await this.api('create', 'dataContextFromURL',
+          { URL: payload.url, title: payload.title }, { timeoutMs: 2500 });
+      } else {
+        made = await this.api('create', 'dataContext', payload.context);
+        if (made?.success) {
+          await this.api('create', `dataContext[${payload.context.name}].item`, payload.items);
+          const table = await this.api('create', 'component', {
+            type: 'caseTable', dataContext: payload.context.name,
+            position: { left: 40, top: 320 }, dimensions: { width: 460, height: 200 },
+          });
+          if (table?.success) this.created.components.push(table.values.id);
+        }
       }
-      this.created.contexts.push(payload.context.name);
-      await this.api('create', `dataContext[${payload.context.name}].item`, payload.items);
-      // A real file drop opens a case table; the demonstration has to look
-      // like the thing the student is about to do.
-      const table = await this.api('create', 'component', {
-        type: 'caseTable', dataContext: payload.context.name,
-        position: { left: 40, top: 320 }, dimensions: { width: 460, height: 200 },
-      });
-      if (table?.success) this.created.components.push(table.values.id);
+      // A null reply is NOT a failure — writes are never retried (they are not
+      // idempotent), so the only honest way to find out whether an import
+      // landed is to look. Measured: `create dataContextFromURL` regularly
+      // exceeds the 6 s reply window while succeeding anyway.
+      if (!made?.success) {
+        const landed = await this.waitFor(async () => {
+          const names = ((await this.api('get', 'dataContextList'))?.values ?? [])
+            .map((c) => c.name);
+          return names.some((n) => !before.has(n)) ? names : null;
+        }, { timeoutSec: 10, what: 'the imported data context to appear' })
+          .catch(() => null);
+        if (!landed) {
+          throw new Error(`carrycsv: import failed ${JSON.stringify(made?.values ?? null)}`);
+        }
+        this.log('carrycsv: no reply, but the import landed — continuing');
+      }
+      // Identify what actually appeared rather than trusting a name we chose:
+      // dataContextFromURL names the context from the file.
+      await sleep(900);
+      const fresh = [];
+      for (const c of ((await this.api('get', 'dataContextList'))?.values ?? [])) {
+        if (!before.has(c.name)) { this.created.contexts.push(c.name); fresh.push(c.name); }
+      }
+      // A real file drop opens a case table. `dataContextFromURL` on v3.1.0
+      // does NOT (measured — same blind spot as the missing notification, see
+      // docs/verification/phase9/BAILOUTS.md), so the demonstration has to open
+      // one itself or it does not look like the thing the student will do.
+      const comps = (await this.api('get', 'componentList'))?.values ?? [];
+      if (fresh.length && !comps.some((c) => /caseTable/i.test(c.type))) {
+        await this._ensureBoundTable(fresh[0]);
+      }
       return made;
     } finally {
       this.cursor.ghost = false;

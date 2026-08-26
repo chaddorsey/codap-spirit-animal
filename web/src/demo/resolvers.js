@@ -42,6 +42,35 @@ const q = (doc, sel, spec) => {
   return el;
 };
 
+/**
+ * A point inside `el` that a student could actually drop on.
+ *
+ * CODAP tiles overlap freely, so a drop zone's centre is often UNDER another
+ * tile. Measured: in the tutorial-1 document the graph sits partly over the
+ * case table, and a drag to the centre of `add-attribute-drop-left` reached
+ * `active` but never `over` — the drop silently did nothing, twice. Semantic
+ * targets have to resolve to a point that is actually reachable, so scan the
+ * rect for one whose topmost element belongs to the target's own tile.
+ */
+function clearPointIn(el, doc) {
+  const r = el.getBoundingClientRect();
+  const tile = el.closest?.('.free-tile-component') ?? null;
+  const reachable = (p) => {
+    const hit = doc.elementFromPoint(p.x, p.y);
+    if (!hit) return false;
+    if (hit === el || el.contains?.(hit)) return true;
+    return tile ? tile.contains(hit) : false;
+  };
+  const fracs = [0.5, 0.72, 0.28, 0.88, 0.12];
+  for (const fy of fracs) {
+    for (const fx of fracs) {
+      const p = { x: r.left + r.width * fx, y: r.top + r.height * fy };
+      if (reachable(p)) return p;
+    }
+  }
+  return null;      // fully occluded — the caller reports it rather than guessing
+}
+
 /** Newest component of a type, from the live component list. */
 function newestOfType(ctx, typeRe) {
   const list = ctx.components ?? [];
@@ -123,7 +152,9 @@ export const TARGETS = {
     const side = args[0] === 'left' ? 'left' : 'bottom';
     const g = graphEl(ctx.doc, `axisDrop:${side}`, Number(args[1]) || 0);
     const el = q(g, `[data-testid="add-attribute-drop-${side}"]`, `axisDrop:${side}`);
-    return { el, dragKind: 'attribute' };
+    const at = clearPointIn(el, ctx.doc);
+    if (!at) throw new TargetNotFound(`axisDrop:${side}`, 'the zone is fully covered by another tile');
+    return { el, at, dragKind: 'attribute' };
   },
 
   /** legendDrop — the plot body, which also accepts a legend attribute. */
@@ -132,7 +163,9 @@ export const TARGETS = {
     const el = g.querySelector('.droppable-plot')
       ?? g.querySelector('[data-testid="plot-cell-background"]');
     if (!el) throw new TargetNotFound('legendDrop', '.droppable-plot');
-    return { el, dragKind: 'attribute' };
+    const at = clearPointIn(el, ctx.doc);
+    if (!at) throw new TargetNotFound('legendDrop', 'the plot is fully covered by another tile');
+    return { el, at, dragKind: 'attribute' };
   },
 
   /** plot — the graph's plot canvas (marquee, point clicks). */

@@ -35,7 +35,10 @@
   </style>
 </head>
 <body>
-  <iframe id="codap" src="/codap/?embeddedServer=yes"></iframe>
+  <!-- src is set by codap-main.js: a hash added AFTER the frame has
+       started loading is a same-document change and CODAP never
+       sees the #file= it booted without. -->
+  <iframe id="codap"></iframe>
   <canvas id="stage"></canvas>
 
   <div id="panel">
