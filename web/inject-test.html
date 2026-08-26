@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>inject test — Phase 9 P0</title>
+  <style>
+    body { margin: 0; font-family: system-ui; overflow: hidden; }
+    #codap { position: fixed; left: 0; top: 0; right: 380px; bottom: 0;
+      width: calc(100vw - 380px); height: 100vh; border: none; }
+    #panel { position: fixed; top: 0; right: 0; width: 380px; height: 100vh;
+      box-sizing: border-box; background: #fff; border-left: 1px solid #d5dae0;
+      display: flex; flex-direction: column; font-size: 12px; }
+    #panel header { padding: 8px 10px; font-weight: 600; flex: none;
+      border-bottom: 1px solid #e8ebef; }
+    #conn { font-weight: 500; color: #b45309; }
+    #conn.ok { color: #0b7285; }
+    #buttons { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
+    #buttons button { padding: 4px 8px; border: 1px solid #99a; border-radius: 5px;
+      background: #fff; cursor: pointer; font-size: 11px; }
+    #buttons button:hover { background: #eef3f8; }
+    #out { flex: 1; overflow-y: auto; background: #f6f8fa; margin: 0 10px 10px;
+      border: 1px solid #e2e6ea; border-radius: 6px; padding: 6px;
+      font: 10px/1.45 ui-monospace, monospace; white-space: pre-wrap;
+      word-break: break-word; }
+    .pass { color: #0b7285; } .fail { color: #c92a2a; } .info { color: #555; }
+    .head { font-weight: 700; color: #111; }
+  </style>
+</head>
+<body>
+  <iframe id="codap" src="/codap/?embeddedServer=yes"></iframe>
+  <div id="panel">
+    <header>P0 injection test — <span id="conn">connecting…</span></header>
+    <div id="buttons">
+      <button id="runAll">▶ __injectTest()</button>
+      <button id="fixture">fixture</button>
+      <button id="probe">probe DOM</button>
+      <button id="reset">reset doc</button>
+      <button id="clear">clear log</button>
+    </div>
+    <div id="out"></div>
+  </div>
+  <script type="module" src="/src/inject-test.js"></script>
+</body>
+</html>
