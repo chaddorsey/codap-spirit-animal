@@ -544,13 +544,48 @@ file; that is part of the phase):
 **Done when**: `__injectTest()` passes for P1–P7+P9, unknown #1 passed,
 and the table below is filled.
 
-> ### P0 VERIFICATION TABLE (Opus fills; example row shows format)
+> ### P0 VERIFICATION TABLE
+>
+> Filled 2026-08-25 against **CODAP v3.1.0 (build 2985)** served through the
+> vite same-origin proxy, driven by `web/inject-test.html` →
+> `window.__injectTest()` (primitives, 12/12 PASS) and `window.__U.*`
+> (measurements). Fixture: the 12-row Mammals dataset created through the API
+> by `web/src/inject-test.js` (numeric Mass with one far outlier, African
+> Elephant 6654 — the shape `docs/BAT-A-POINT.md` calibrated against).
+> Evidence: `docs/verification/phase9/`.
+>
+> **The one thing to carry forward:** synthetic input is not one mechanism.
+> CODAP v3 drives four different stacks and each listens somewhere else. A
+> recipe that works for the attribute pill does nothing to the axis. The
+> named wrappers in `web/src/inject.js` (`dragAttribute`, `dragTile`,
+> `dragAxis`, `marquee`, `pointDrag`) each pin one measured combination.
+>
 > | Item | Result | Recipe / notes | Revert (undo clicks or inverse) |
 > |------|--------|----------------|----------------------------------|
-> | *example:* P1 toolbar click | works | single MouseEvent('click') | 1 undo click |
-> | P0.1 plugin-in-v3 | | | |
-> | P0.2 doc loading | | | |
-> | … one row per unknown … | | | |
+> | **P0.1** plugin-in-wrapper sanity | **PASS** | Loaded `get_started.codap` in our same-origin wrapper; injected one tool-shelf Graph click; the plugin checked "Make a graph" and showed its success feedback ("Very nice graph! There are no points in it…"). v2-vocabulary completion detection works inside OUR embedding. Screenshot `p0-1-tutorial1-after-graph.png` | n/a |
+> | **P0.2** document loading | **PASS** | `#file=<ABSOLUTE url>` on the CODAP iframe: `/codap/?embeddedServer=yes#file=http://localhost:5199/tutorial-docs/get_started.codap`. The `examples:` scheme cannot reach our copies (review was right). Harness support: `inject-test.html?doc=/tutorial-docs/<file>`. All 7 docs vendored to `web/public/tutorial-docs/` — family A (`get_started`, `get_started_2`) from `codap-resources.concord.org/example-documents/documents/`, family B (`get_started_3..7`) from `concord-consortium.github.io/codap-data/onboarding-documents/`. Family A tutorial 1 is ONE `DG.GameView` whose `currentGameUrl` is `../../../../extn/plugins/onboarding/` (v3 rewrites it to codap-resources) — that string is the single edit the P3 fork needs. **No conversion damage seen** on family A (t1) or family B (t3): plugin renders, checklist renders, UN dataset table shows 195 cases (`p0-2-familyB-tutorial3.png`) | n/a |
+> | **P1** click a UI element | **PASS** | ONE `MouseEvent('click')` on `[data-testid=tool-shelf-button-graph]`. Deterministic 3/3 (0→1 graph). See the click-shape row below | **1 undo click**; redo restores |
+> | **P2a** toolbar menu + choose | **PASS** | One click on the shelf button opens; the list is EMPTY when closed and populated when open; items carry testids (`tool-shelf-table-new`, `-new-clipboard`, `tool-shelf-table-<dataset>`). **Escape does NOT close it** (injection never gives the menu keyboard focus) — a second click on the trigger does | per action chosen |
+> | **P2b** axis attribute menu | **PASS** | SINGLE click on `[data-testid=axis-legend-attribute-button-left/-bottom]` opens `[data-testid=axis-legend-attribute-menu-list-left/-bottom]`. 8 items, **no data-testids — index only**; on a Mass×Sleep graph "Remove Y: Sleep" was index 6. Lookalike Unicode confirmed again (Tables ▸ "Νew" starts U+039D) | 1 undo click |
+> | **P2c** case-table column menu | **PASS** | Needs the **FULL pointer sequence** on the pill button — a lone `click` leaves `aria-expanded="false"`. 11 items, index only: Rename, Fit Width To Content, Edit Attribute Properties, Edit Formula, Delete Formula, Recover Deleted Formula, Rerandomize, Sort Asc, Sort Desc, **Hide Attribute (9)**, Delete Attribute (10) | per action chosen |
+> | **P3** attribute pill → axis | **PASS** | `inj.dragAttribute`. **dnd-kit.** `pointerdown` on the `[aria-roledescription="draggable"]` WRAPPER (`div[data-testid=codap-column-header-content]`), NOT the pill button (the Chakra menu button swallows it); 16 `pointermove` on `document`; **`pointerup` on `document`**. Drop zones `[data-testid=add-attribute-drop-bottom / -left]` gain `active` then `over`. Mouse events are optional (4/4 with and without) | 1 undo click each for x and y; redo restores |
+> | **P3-correction** | **CORRECTS the spike** | `docs/SPIKE-SAME-ORIGIN.md` finding #3 says `pointerup` must go on the iframe `window`. On v3.1.0 that leaves the drop UNCOMMITTED — the zone shows `over` and no attribute lands. A/B run back-to-back, 2× each: document 2/2 commit, window 0/2. Spike doc annotated | — |
+> | **P4** drag component by title bar | **PASS** | `inj.dragTile`. **React props, not dnd-kit** (the title bar has no `aria-roledescription`). Pointer `down`/`move`/`up` ALL dispatched **on the `.component-title-bar` element itself**; document- and window-targeted moves do nothing at all. Landing error **0.0 px** for a (−60, +90) request | 1 undo click; redo restores |
+> | **P5a** click a plotted point | **PASS** | Full pointer sequence at the computed point on the graph `<canvas>`. Position is now EXACT: `plot-cell-background`'s rect IS the canvas rect, so `x = plotLeft + (v − xLo)/(xHi − xLo)·plotWidth`; dot plot y = `plotBottom − 6`; scatterplot y from the y bounds. First try selected African Elephant | selection is NOT undoable — see P0.7 |
+> | **P5b** click a map region | **not probed** | Out of P0–P4 scope (tutorials 3–7). Still UNVERIFIED, still Leaflet, still probe-at-P5 | — |
+> | **P6** marquee select | **PASS** | `inj.marquee` — pointer drag on the canvas from plot top-left+6 to bottom-right−6; selected all 12 cases. Must NOT climb to a draggable ancestor (`useHandle: false`), or the tile moves instead | NOT undoable; inverse = `create dataContext[X].selectionList []` |
+> | **P7** type text | **PASS** | Full-sequence click on `[data-testid=title-text]` swaps in an `<input>` inside the title bar; per-keystroke `keydown`/`keypress`/native-value-setter+`input`/`keyup` at ~20 cps, then `Enter`. Title became "Dot Was Here" | 1 undo click; redo restores |
+> | **P8** CSV import | **not probed** | Fallback-first by design (`carrycsv`) — unchanged | — |
+> | **P9** axis rescale / pan | **PASS** | `inj.dragAxis`. **d3-drag, and it is MOUSE-ONLY** — pointer events have zero effect. `mousedown` on `rect.dragRect.h-translate` (pan) / `.h-lower-dilate` / `.h-upper-dilate` (rescale), `mousemove`×12 then `mouseup` on `window` (document also works). Pan +60 px: x bounds [−500, 7500] → [−2110.7, 5889.3]. **Beware**: `[data-testid=axis-bottom]`'s bounding rect spans the whole plot (it contains the grid lines) — hit-test below `plotRect.bottom`, not inside it | 1 undo click; redo restores |
+> | **P10** point drag (displace/recover) | **PASS** | Pointer down/move/up on the canvas, moves on `document`. The dragged point renders BLUE (selected) while held and animates home on release | see P0.6 |
+> | **click shape (general rule)** | measured | Tool-shelf buttons and open menu items: ONE `click` (the full sequence double-toggles Chakra menus). Everything inside a component — title bars, case-table pills, inspector buttons, canvas: the FULL pointer sequence. Axis attribute-label menus are the exception that proves it: single click, even though they sit inside a draggable. `inject.js` `needsFullSequence()` encodes this; resolvers may override | — |
+> | **P0.4** undo mechanics | measured | Every document mutation tested reverts in exactly **1 undo click**: graph create, pill→x, pill→y, tile move, axis pan, title rename. **Selection is not on the undo stack at all** (6 clicks, no change) | inverse for selection: `selectCases []` |
+> | **P0.4b** redo residue | measured, **verbatim** | After a full undo revert, ONE Redo click re-applies the change for **every** undoable primitive above (6/6). So Dot's demo does sit on the redo stack and a student pressing Redo replays it — and may self-check a task. Policy stands: accept and record; the P3 fork should also gate its notification listener during a redo burst if it can tell them apart | — |
+> | **P0.5** trusted-mouse interference | **HARMLESS** | With the injected drag slowed to 40 steps × 60 ms, 9–10 **trusted** CDP mouse moves per run were delivered into CODAP's document mid-drag (counted by a capture listener filtering `isTrusted && !__dotDemo`), on paths crossing the whole graph. The drop committed correctly **2/2**. → **Cancellation channel #2 (trusted `pointermove` during a drag) may be relaxed to pointerdown-only.** Caveat worth knowing: `agent-browser mouse move $var` silently no-ops under zsh (no word splitting) — the first two "no interference" runs were vacuous until the counter caught it | — |
+> | **P0.6a** displacement transfer function | **gain = 1.00** | Dot plot, outlier held at −20 / −60 / −120 px and screenshot-measured (PIL blob centroid, dpr 1, plot rect 572,156,298,259): rendered −20.0 / −60.0 / −120.0 px. **Exactly 1:1, not damped** — the spike's "~12 px for 60 px" was mid-animation sampling. Drawn point radius ≈ **7.9 px** on a 12-case dot plot. So a P6 bat arc needs ≥ ~16 px of injected travel to clear the 2×-radius visibility floor | point animates home natively |
+> | **P0.6b** scatterplot data identity | **PASS** | `itemSearch[*]` before / during / after a 70×−40 px point drag: values DO change during the drag (`duringDiffers: true`) and are **byte-identical after release** (1250-char normalized JSON, exact match). Chad's condition is met → scatterplots stay eligible for the Easter eggs | none needed |
+> | **P0.7** selection cleanup | **PASS** | `create dataContext[X].selectionList []` clears a click-made selection (verified in-suite) | — |
+> | **anomaly, unresolved** | recorded | Once, during P0.1 setup, a single injected Graph click was followed by FOUR graph components in `componentList`. Not reproduced: 3/3 controlled repeats gave 0→1, and the in-suite P1 assertion (`before + 1`) has passed on every run since. Cause unknown. This is exactly why revert is state-diff driven and not count driven — no action taken, but do not "simplify" the revert on the assumption that one action means one mutation | — |
 
 ### Phase 1 — demo cursor + paw sync
 

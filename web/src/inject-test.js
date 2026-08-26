@@ -15,6 +15,16 @@ import { CodapBridge } from './codap-bridge.js';
 import { Injector, sameOrigin, sleep, toPoint, toRect } from './inject.js';
 
 const iframe = document.getElementById('codap');
+
+// P0.2: an arbitrary same-origin `.codap` document loads via the hash
+// `#file=<absolute url>` (verified on v3.1.0 — the `examples:` scheme only
+// resolves against CODAP's own registry and cannot reach our copies).
+// `?doc=/tutorial-docs/get_started.codap` exercises it.
+const DOC = new URLSearchParams(location.search).get('doc');
+if (DOC) {
+  iframe.src = `/codap/?embeddedServer=yes#file=${location.origin}${DOC}`;
+}
+
 const bridge = new CodapBridge(iframe);
 const out = document.getElementById('out');
 
@@ -251,10 +261,11 @@ window.__fixture = ensureFixture;
 window.__dismiss = dismissChrome;
 window.__ensureTable = ensureTable;
 /** Cold-start everything the suite assumes: chrome gone, fixture + table up. */
-window.__setup = async () => {
+window.__setup = async ({ fixture = !DOC } = {}) => {
   await waitConnected();
   await dismissChrome();
   injector();
+  if (!fixture) { line('setup complete (loaded document, no fixture)', 'pass'); return null; }
   await ensureFixture();
   const tableId = await ensureTable();
   line(`setup complete (table ${tableId})`, 'pass');
@@ -284,14 +295,18 @@ line('harness loaded — waiting for CODAP…');
 // The suite itself lives in inject-tests-suite.js so it can be edited without
 // touching the harness plumbing.
 const { runSuite } = await import('./inject-tests-suite.js');
+const { installUnknowns } = await import('./inject-unknowns.js');
+
+const SUITE_CTX = { api, verify, line, head, injector, SEL, cdoc, cwin,
+                    componentList, component, selectionCount, items, sleep,
+                    toPoint, toRect, probe, ensureFixture, ensureTable };
+installUnknowns(SUITE_CTX);
 window.__injectTest = async () => {
   out.innerHTML = '';
   results.length = 0;
   head('=== P0 injection suite ===');
   await window.__setup();
-  await runSuite({ test, api, verify, line, head, injector, SEL, cdoc, cwin,
-                   componentList, component, selectionCount, items, sleep,
-                   toPoint, toRect, probe, ensureFixture, ensureTable });
+  await runSuite({ ...SUITE_CTX, test });
   const passed = results.filter((r) => r.ok).length;
   head(`=== ${passed}/${results.length} ${passed === results.length ? 'PASS' : 'FAIL'} ===`);
   return { passed, total: results.length, results };

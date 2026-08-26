@@ -1,5 +1,32 @@
 # SPIKE — same-origin CODAP + synthetic input injection (2026-08-25)
 
+> **CORRECTED 2026-08-25 by Phase 9 P0 — read this first.** The conclusion
+> ("YES to all of it") holds and every mechanism below still works, but two
+> specifics are WRONG as written, and one number is wrong. Details and
+> evidence in the P0 VERIFICATION TABLE of `docs/PHASE9-SHOWME.md`; the
+> working recipes live in `web/src/inject.js`.
+>
+> 1. **Finding 3 is wrong about `pointerup`.** It says the release must be
+>    dispatched on the iframe's `window`. On v3.1.0 that leaves the drop
+>    UNCOMMITTED — the drop zone reaches `over` and no attribute lands. It
+>    must go on the iframe's **`document`**. A/B, back to back, 2× each:
+>    document 2/2 commit, window 0/2.
+> 2. **Finding 3 is wrong about the drag source.** `pointerdown` on the pill
+>    `[data-testid="codap-attribute-button Mass"]` does not start a drag —
+>    that element is a Chakra menu button. The dnd-kit draggable is its
+>    parent `div[data-testid=codap-column-header-content]`
+>    (`aria-roledescription="draggable"`).
+> 3. **The damping in "Costs / open items" is not real.** The point-drag
+>    transfer function is exactly **1.00** (measured at 20, 60 and 120 px by
+>    screenshot). The "~12 px for a 60 px drag" was mid-animation sampling.
+>
+> Also learned the hard way: "synthetic events just work" is four different
+> stacks, not one. dnd-kit (attribute drags) listens on `document`; component
+> title-bar moves are React props that only fire when the events are
+> dispatched **on the title-bar element itself**; the axis pan/rescale
+> handles are **d3-drag and take MOUSE events only** — pointer events do
+> nothing to them.
+
 Question (Chad): can Dot generate real mouse drags/clicks — tutorial-by-
 demonstration (drag attribute to axis, open menus/flyouts), and can we
 leverage the native drag-displace-recover behavior of plotted points
