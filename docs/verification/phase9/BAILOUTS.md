@@ -130,6 +130,46 @@ student progress and the CODAP team should hear about it.
 **Recorded 2026-08-26 after well more than three full attempts, per the
 bail-out rule ("a Done-when item still failing after 3 full attempts").**
 
+> **CORRECTED — read this first.** Everything below that blames *variance* was
+> measured with a confound: the harness deleted the graph and started the next
+> attempt ~3 s later, so every run was timed against a **busy** CODAP. Chad's
+> suggestion to wait longer was right and changed the diagnosis. Quiescing
+> properly first (20 s floor, then frames sustained ≤45 ms for 5 s — outside
+> the demo clock, and closer to a real student's idle page than the old harness
+> was) collapses the spread:
+>
+> ```
+> run 1  quiesce 25.0s   tap 20.2  drag 28.5   -> cap
+> run 2  quiesce 26.8s   tap 26.0  drag 29.9   -> cap
+> run 3  quiesce 32.6s   tap 21.7  drag 31.9   -> cap
+> ```
+>
+> **It is not luck — it is a stable ~1.5x overrun.** The task needs roughly
+> 85-100 s and the cap is 60 s. The 26-77 s spread recorded further down is an
+> artifact of the busy-page harness, not a property of CODAP at rest.
+>
+> **Whose time it is, measured on an idle page:**
+>
+> ```
+> Dot travels to the button   0.1 s
+> tap clip to contact         1.3 s
+> the injected click          8.6 s   <- CODAP
+> settle after the click      5.1 s   <- CODAP still working
+> ```
+>
+> Dot's choreography is about 2.5 s per action. Everything else in a 22 s tap
+> is CODAP building the graph. There is no remaining slack on our side to cut:
+> three mutations cost three of those, and no implementation change reaches
+> them.
+>
+> **This makes Chad's three options decidable with numbers.** Splitting the
+> task fits: "create the graph and put Age on x" measures ~52 s, and "add
+> Height to y" ~25-35 s, both inside the existing cap with no gate touched.
+> Raising the cap instead would need ~120 s to be safe. Leaving it on the MP4
+> costs nothing and is what ships today. The split is the only option that
+> gets a live demo without changing a recorded decision — **but it changes what
+> one "Show me." link does, which is product shape and remains yours.**
+
 ### What the task is
 
 Tutorial 2's first task — "Make a scatterplot of height vs age" — is three
