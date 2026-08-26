@@ -29,6 +29,57 @@
  */
 import { DemoCursor } from './cursor.js';
 import { CursorPath, arcPath, runPath } from './timeline.js';
+import { coerce, validate, DemoValidationError } from './demo-lang.js';
+import { resolveTarget, evalCondition, TargetNotFound } from './resolvers.js';
+
+/** Safety caps for externally authored scripts (a script is untrusted input). */
+export const CAPS = {
+  steps: 40,          // also enforced by the schema
+  mutations: 10,      // measured by LIVE STATE DIFF, never by counting events
+  wallClockSec: 60,
+  undoClicks: 8,
+};
+
+/**
+ * Cancellation channels 1 and 3 from the work order. Channel 2 (trusted
+ * pointermove during an injected drag) was measured HARMLESS in P0 — 9-10
+ * confirmed trusted moves interleaved into a live drag, drop committed 2/2 —
+ * so it is deliberately NOT wired. That is a recorded P0 result, not an
+ * oversight.
+ *
+ * The grace period matters: the click that STARTS a demo (a "Show me." link,
+ * or the debug button) is itself a trusted pointerdown, and without a grace
+ * it would cancel the demo it just started.
+ */
+class CancelWatch {
+  constructor(onCancel, { graceMs = 500 } = {}) {
+    this.onCancel = onCancel;
+    this.armAt = performance.now() + graceMs;
+    this.docs = [];
+    this.handler = (e) => {
+      if (e.__dotDemo || !e.isTrusted) return;      // our own input
+      if (performance.now() < this.armAt) return;   // the click that started us
+      this.onCancel(`student ${e.type}`);
+    };
+  }
+
+  watch(doc) {
+    if (!doc || this.docs.includes(doc)) return;
+    this.docs.push(doc);
+    for (const t of ['pointerdown', 'keydown']) {
+      doc.addEventListener(t, this.handler, true);
+    }
+  }
+
+  stop() {
+    for (const doc of this.docs) {
+      for (const t of ['pointerdown', 'keydown']) {
+        doc.removeEventListener(t, this.handler, true);
+      }
+    }
+    this.docs = [];
+  }
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -84,8 +135,21 @@ export class DemoDriver {
   }
 
   // ------------------------------------------------------------- API glue
-  /** One API call with a timeout, retried — the phone drops replies. */
-  async api(action, resource, values, { tries = 4, timeoutMs = 3000 } = {}) {
+  /**
+   * One API call with a timeout.
+   *
+   * READS are retried — the iframe phone drops replies at random and a lost
+   * `get` reply is free to ask again. WRITES ARE NOT. A `create` whose reply
+   * was dropped still HAPPENED, and re-sending it makes a second component:
+   * one `create component graph` came back as FOUR graphs before this was
+   * fixed (measured 2026-08-25, and almost certainly the cause of the
+   * "unexplained four graphs" recorded in the P0 table). Verify a write with
+   * a follow-up read instead of retrying it — that is what get-verify-retry
+   * always meant.
+   */
+  async api(action, resource, values, opts = {}) {
+    const isRead = action === 'get' || action === 'notify';
+    const { tries = isRead ? 4 : 1, timeoutMs = isRead ? 3000 : 6000 } = opts;
     for (let i = 0; i < tries; i++) {
       if (this.aborted) throw new DemoAbort();
       const res = await Promise.race([
@@ -93,6 +157,11 @@ export class DemoDriver {
         sleep(timeoutMs).then(() => null),
       ]);
       if (res) return res;
+      if (!isRead) {
+        this.log(`api: ${action} ${resource} got no reply — NOT retried (writes `
+          + 'are not idempotent); verify with a read instead');
+        return null;
+      }
       await sleep(150);
     }
     return null;
@@ -118,7 +187,13 @@ export class DemoDriver {
    */
   async snapshot() {
     const list = await this.api('get', 'componentList');
-    const out = { components: [], selection: null };
+    const contexts = await this.api('get', 'dataContextList');
+    const out = {
+      components: [],
+      // `carrycsv` creates a whole dataset, which no component field would
+      // show — the diff has to be able to see it to know it is still there.
+      contexts: (contexts?.values ?? []).map((c) => c.name).sort(),
+    };
     for (const item of list?.values ?? []) {
       const c = await this.api('get', `component[${item.id}]`);
       const v = c?.values ?? {};
@@ -133,6 +208,11 @@ export class DemoDriver {
     }
     out.components.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     return out;
+  }
+
+  /** Stable identity for a diff entry, so "is this ours?" is answerable. */
+  static diffKey(d) {
+    return `${d.kind}:${d.id ?? d.name ?? ''}:${d.field ?? ''}`;
   }
 
   /** Entry-wise difference; length 0 means "back where we started". */
@@ -152,6 +232,16 @@ export class DemoDriver {
     }
     for (const [id, b] of baseById) {
       if (!nowById.has(id)) out.push({ kind: 'removed', id, type: b.type });
+    }
+    for (const name of now.contexts ?? []) {
+      if (!(base.contexts ?? []).includes(name)) {
+        out.push({ kind: 'contextAdded', name });
+      }
+    }
+    for (const name of base.contexts ?? []) {
+      if (!(now.contexts ?? []).includes(name)) {
+        out.push({ kind: 'contextRemoved', name });
+      }
     }
     return out;
   }
@@ -227,7 +317,14 @@ export class DemoDriver {
     this.samples = [];
     this.allSamples = [];
     this.tapErrors = [];
+    // ids/names this demo creates itself — the ONLY things revert is allowed
+    // to delete outright when Undo will not reach them
+    this.created = { contexts: [], components: [] };
+    // Diff entries this demo is RESPONSIBLE for, keyed. Revert undoes these
+    // and nothing else — see the redo-guard in revert().
+    this.ownKeys = new Set();
     this.base = await this.snapshot();
+    this.baseSelection = await this.selectionCount().catch(() => 0);
 
     // Stand on the side with more room: left of a target in the right half of
     // the screen, right of one in the left half.
@@ -266,6 +363,22 @@ export class DemoDriver {
   }
 
   _checkAbort() { if (this.aborted) throw new DemoAbort(this.abortReason); }
+
+  /**
+   * A wait that NOTICES a cancellation. A plain `sleep(9000)` inside a
+   * teaching beat swallows the student's cancel for nine seconds — long
+   * enough here for the wall-clock cap to fire first and report the wrong
+   * cause. Dot has to retreat when the student touches something, not when
+   * she happens to finish waiting.
+   */
+  async _sleep(ms) {
+    const until = performance.now() + ms;
+    while (performance.now() < until) {
+      this._checkAbort();
+      await sleep(Math.min(100, until - performance.now()));
+    }
+    this._checkAbort();
+  }
 
   // -------------------------------------------------------------- motions
   /** Travel the cursor (and therefore Dot) to a screen point along an arc. */
@@ -398,22 +511,35 @@ export class DemoDriver {
    * button, and stop the moment the diff stops shrinking — that is what
    * protects a student change that landed on the undo stack mid-demo.
    */
-  async revert({ embodied = true, cap = 8 } = {}) {
+  async revert({ embodied = true, cap = CAPS.undoClicks } = {}) {
     const doc = this.iframe.contentDocument;
     const undo = doc.querySelector('[data-testid="tool-shelf-button-undo"]');
     if (!undo) { this.log('revert: no Undo button found'); return { residue: null }; }
 
     let d = this.diff(await this.snapshot(), this.base);
-    if (!d.length) return { clicks: 0, residue: [] };
+    if (!d.length) return { clicks: 0, redone: false, residue: [], ownResidue: [] };
 
     if (embodied && !this.aborted) {
       await this.goTo(this._center(undo), { sec: 0.9 });
       await sleep(160);
     }
 
+    // Ours vs theirs. The work order's rule — "stop when the diff stops
+    // shrinking" — does not actually protect a student change that landed ON
+    // TOP of ours: undoing THEIR graph shrinks the diff too, so the loop would
+    // sail past it and destroy their work. The rule that does protect them is
+    // to watch the FOREIGN part of the diff: if an Undo click made a change
+    // that is not ours disappear, we just undid the student. Redo it at once
+    // (P0 measured redo restores 6/6 primitives exactly) and stop, residue and
+    // all. Recorded in docs/verification/phase9/P2-NOTES.md.
+    const isOwn = (e) => this.ownKeys.has(DemoDriver.diffKey(e));
+    const foreignCount = (list) => list.filter((e) => !isOwn(e)).length;
+
     let clicks = 0;
+    let redone = false;
     let prev = d.length;
-    while (d.length && clicks < cap) {
+    let foreign = foreignCount(d);
+    while (d.some(isOwn) && clicks < cap) {
       if (embodied && !this.aborted) {
         await this.tap(undo, { clickOpts: { full: false } });
       } else {
@@ -421,15 +547,439 @@ export class DemoDriver {
         await sleep(700);
       }
       clicks += 1;
-      d = this.diff(await this.snapshot(), this.base);
-      if (d.length >= prev) {
-        // Undo is now reverting something that is NOT ours. STOP.
-        this.log(`revert: diff stopped shrinking at ${d.length} — stopping`);
+      const next = this.diff(await this.snapshot(), this.base);
+      if (foreignCount(next) < foreign) {
+        const redo = doc.querySelector('[data-testid="tool-shelf-button-redo"]');
+        if (redo) {
+          await this.inj.click(redo, { full: false });
+          await sleep(800);
+          redone = true;
+        }
+        this.log('revert: that Undo hit the STUDENT\'s change — redone, stopping');
+        d = this.diff(await this.snapshot(), this.base);
         break;
       }
-      prev = d.length;
+      if (next.length >= prev) {
+        this.log(`revert: diff stopped shrinking at ${next.length} — stopping`);
+        d = next;
+        break;
+      }
+      prev = next.length;
+      foreign = foreignCount(next);
+      d = next;
     }
+
+    // Targeted inverse ops for residue Undo could not reach — and ONLY for
+    // changes this demo is responsible for. This is what happens after the
+    // redo-guard stops the Undo loop: the student's change is on top of the
+    // stack, so Dot cannot undo her own without destroying theirs, but she can
+    // still put back the specific field she changed.
+    // Our own restore can knock a NEIGHBOURING field loose — clearing x made
+    // CODAP promote Mass to y — and that new drift is ours to clean up even
+    // though no demo step created it. Fields on a component this revert has
+    // already written to therefore count as ours for the remaining passes;
+    // fields on components it has NOT touched still do not.
+    const revertTouched = new Set();
+    const ownNow = (e) => isOwn(e)
+      || (e.kind === 'changed' && revertTouched.has(e.id));
+
+    for (let pass = 0; pass < 3 && d.some(ownNow); pass++) {
+      const beforeKeys = d.filter(ownNow).map(DemoDriver.diffKey).sort().join('|');
+      const changedByComponent = new Map();
+      for (const item of d) {
+        if (!ownNow(item)) continue;
+        if (item.kind === 'contextAdded' && this.created.contexts.includes(item.name)) {
+          await this.api('delete', `dataContext[${item.name}]`);
+        } else if (item.kind === 'added' && this.created.components.includes(item.id)) {
+          await this.api('delete', `component[${item.id}]`);
+        } else if (item.kind === 'changed') {
+          if (!changedByComponent.has(item.id)) changedByComponent.set(item.id, []);
+          changedByComponent.get(item.id).push(item);
+        }
+      }
+      for (const [id, items] of changedByComponent) {
+        revertTouched.add(id);
+        await this._restoreComponent(id, items);
+      }
+      await sleep(600);
+      d = this.diff(await this.snapshot(), this.base);
+      const afterKeys = d.filter(ownNow).map(DemoDriver.diffKey).sort().join('|');
+      if (afterKeys === beforeKeys) break;    // nothing moved: stop and report
+    }
+    // Selection is not on the undo stack at all (P0: 6 clicks, no change), so
+    // it always needs its inverse.
+    const sel = await this.selectionCount().catch(() => 0);
+    if (sel > 0 && !this.baseSelection) {
+      await this.api('create',
+        `dataContext[${this._dataContext ?? 'Mammals'}].selectionList`, []);
+    }
+
     if (d.length) this.log(`revert residue: ${JSON.stringify(d)}`);
-    return { clicks, residue: d };
+    return { clicks, redone, residue: d, ownResidue: d.filter(isOwn) };
+  }
+
+  /**
+   * Put one component field back to its demo-start value through the API.
+   * Verified live: `update component[id] { xAttributeName: null }` clears an
+   * axis, which is the case that actually comes up (a demo assigns an
+   * attribute, a student acts on top of it, Undo is no longer safe to use).
+   */
+  async _restoreComponent(id, items) {
+    const API_FIELD = {
+      x: 'xAttributeName', y: 'yAttributeName', legend: 'legendAttributeName',
+      title: 'title', xLo: 'xLowerBound', xHi: 'xUpperBound',
+    };
+    const base = this.base.components.find((c) => String(c.id) === String(id));
+    const values = {};
+    const fields = [];
+    for (const item of items) {
+      if (item.field === 'left' || item.field === 'top') {
+        values.position = { left: base?.left, top: base?.top };
+      } else if (item.field === 'w' || item.field === 'h') {
+        values.dimensions = { width: base?.w, height: base?.h };
+      } else if (API_FIELD[item.field]) {
+        values[API_FIELD[item.field]] = item.from ?? null;
+      } else {
+        continue;
+      }
+      fields.push(item.field);
+    }
+    if (!fields.length) return false;
+    // ONE update per component, all fields at once: clearing x on its own made
+    // CODAP promote the remaining attribute to y, so a field-at-a-time restore
+    // chases its own tail (measured while building the cancel test).
+    const r = await this.api('update', `component[${id}]`, values);
+    this.log(`revert: targeted inverse ${fields.join('+')} on ${id} `
+      + `(${r?.success ? 'ok' : 'FAILED'})`);
+    return !!r?.success;
+  }
+
+  // ================================================================ P2: run
+  /**
+   * Resolver context. `components` is always needed; graph props and items
+   * are only fetched for `point:` targets, which are the only ones that need
+   * data values to place themselves.
+   */
+  async _targetCtx(spec) {
+    const ctx = { doc: this.iframe.contentDocument };
+    ctx.components = (await this.api('get', 'componentList'))?.values ?? [];
+    if (String(spec).startsWith('point')) {
+      const graphs = ctx.components.filter((c) => /graph/i.test(c.type));
+      const gid = graphs[graphs.length - 1]?.id;
+      ctx.graphProps = gid ? (await this.api('get', `component[${gid}]`))?.values : null;
+      const dc = ctx.graphProps?.dataContext ?? 'Mammals';
+      ctx.items = (await this.api('get', `dataContext[${dc}].itemSearch[*]`))?.values ?? [];
+    }
+    return ctx;
+  }
+
+  async _resolve(spec) {
+    return resolveTarget(spec, await this._targetCtx(spec));
+  }
+
+  /** Move Dot to the other flank mid-demo (the `beside` hint on `goto`). */
+  async _setSide(side) {
+    if (side === this.side) return;
+    this.side = side;
+    this.axo.targetFacing = (side === 'L' ? 1 : -1) * Math.PI * 0.38;
+    await this.axo.play(side === 'L' ? 'point_L' : 'point_R', { hold: true });
+    await sleep(220);
+  }
+
+  async selectionCount(context) {
+    const dc = context ?? this._dataContext ?? 'Mammals';
+    const r = await this.api('get', `dataContext[${dc}].selectionList`);
+    return r?.success ? (r.values ?? []).length : 0;
+  }
+
+  /**
+   * Execute one script. Accepts line notation, a JSON string, or an object;
+   * VALIDATES FIRST so a malformed script is rejected with a typed error and
+   * zero Dot movement, then runs it under the safety caps.
+   */
+  async runScript(input, { allowLeaveChanges = false, embodiedRevert = true } = {}) {
+    // ---- validate before anything moves -------------------------------
+    const script = coerce(input);                     // throws typed errors
+    if (script.leaveChanges && !allowLeaveChanges) {
+      throw new DemoValidationError(
+        'leaveChanges requires the caller to pass allowLeaveChanges');
+    }
+    const steps = [...script.steps];
+    if (!script.leaveChanges && !steps.some((s) => s.do === 'revert')) {
+      steps.push({ do: 'revert' });                   // revert is not optional
+    }
+    if (steps.length > CAPS.steps) {
+      throw new DemoValidationError(
+        `${steps.length} steps exceeds the cap of ${CAPS.steps}`);
+    }
+
+    // ---- run ----------------------------------------------------------
+    const firstTarget = steps.find((s) => s.target || s.from);
+    const firstSpec = firstTarget?.target ?? firstTarget?.from;
+    let anchor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    if (firstSpec) {
+      try { anchor = this._center((await this._resolve(firstSpec)).el); }
+      catch { /* side choice falls back to screen centre */ }
+    }
+
+    const watch = new CancelWatch((why) => this.abort(why));
+    const startedAt = performance.now();
+    let reverted = null;
+    let error = null;
+    await this.begin(anchor);
+    this.recording = true;
+    watch.watch(this.iframe.contentDocument);
+    watch.watch(document);
+    for (const f of this.iframe.contentDocument.querySelectorAll('iframe')) {
+      try { watch.watch(f.contentDocument); } catch { /* cross-origin plugin */ }
+    }
+
+    try {
+      for (const step of steps) {
+        this._checkAbort();
+        if (performance.now() - startedAt > CAPS.wallClockSec * 1000) {
+          throw new Error(`demo exceeded ${CAPS.wallClockSec}s wall clock`);
+        }
+        await this._step(step);
+        if (step.do === 'revert') { reverted = this._lastRevert; continue; }
+        // After every step: claim what changed as OURS (so revert knows what
+        // it may undo) and enforce the mutation cap by LIVE STATE DIFF, never
+        // by counting notifications — those drop (gotcha #5).
+        const d = this.diff(await this.snapshot(), this.base);
+        for (const e of d) this.ownKeys.add(DemoDriver.diffKey(e));
+        if (d.length > CAPS.mutations) {
+          throw new Error(
+            `demo made ${d.length} document changes, cap is ${CAPS.mutations}`);
+        }
+      }
+      if (script.inverseSteps?.length) {
+        for (const s of script.inverseSteps) await this._step(s);
+      }
+      return { ok: true, demo: script.demo, sync: this.syncReport(),
+               revert: reverted, sec: +((performance.now() - startedAt) / 1000).toFixed(1) };
+    } catch (err) {
+      error = err;
+      // A cancelled or broken demo still cleans up after itself — an abandoned
+      // demo must never strand mutations in a student's document.
+      this.aborted = false;                  // let the revert's API calls run
+      try {
+        this._lastRevert = await this.revert({ embodied: false });
+      } catch (e2) {
+        this.log(`revert after failure ALSO failed: ${e2.message}`);
+      }
+      throw err;
+    } finally {
+      watch.stop();
+      this.recording = false;
+      if (error) { try { this.axo.play('startle'); } catch { /* noop */ } }
+      await this.end();
+    }
+  }
+
+  async _step(step) {
+    this._checkAbort();
+    switch (step.do) {
+      case 'say':
+        this.axo.emote(step.emote);
+        await this._sleep(220);
+        return;
+
+      case 'pose':
+        await this.axo.play(step.clip);
+        return;
+
+      case 'beat':
+        await this._sleep(step.sec * 1000);
+        return;
+
+      case 'goTo': {
+        const t = await this._resolve(step.target);
+        if (step.beside === 'left') await this._setSide('L');
+        else if (step.beside === 'right') await this._setSide('R');
+        await this.goTo(t.at ? this._toHost(t.at) : this._center(t.el));
+        return;
+      }
+
+      case 'peer': {
+        const t = await this._resolve(step.target);
+        const c = t.at ? this._toHost(t.at) : this._center(t.el);
+        this.axo.lookAt(c.x, c.y);
+        await this.axo.play('head_tilt');
+        return;
+      }
+
+      case 'tap':
+      case 'openMenu':
+      case 'choose': {
+        const t = await this._resolve(step.target);
+        await this.tap(t.el, {
+          at: t.at,
+          clickOpts: { full: t.clickShape === 'single' ? false
+                        : t.clickShape === 'full' ? true : 'auto' },
+        });
+        return;
+      }
+
+      case 'drag': {
+        const from = await this._resolve(step.from);
+        const to = await this._resolve(step.to);
+        return this._dragByKind(from, to, step.profile);
+      }
+
+      case 'marquee': {
+        const t = await this._resolve(step.target);
+        const r = t.el.getBoundingClientRect();
+        const a = this._toHost({ x: r.left + 6, y: r.top + 6 });
+        const b = this._toHost({ x: r.right - 6, y: r.bottom - 6 });
+        await this.goTo(a, { sec: 0.7 });
+        this.timelineActive = true;
+        this.phase = 'drag';
+        try {
+          await this.inj.marquee({ x: r.left + 6, y: r.top + 6 },
+                                 { x: r.right - 6, y: r.bottom - 6 }, {
+            steps: 20, stepMs: 34,
+            onStep: (pt) => {
+              const h = this._toHost(pt);
+              this.cursorPt = h;
+              this.cursor.moveTo(h.x, h.y);
+            },
+          });
+        } finally { this.timelineActive = false; this.phase = 'idle'; }
+        this.cursorPt = b;
+        return;
+      }
+
+      case 'type': {
+        const t = await this._resolve(step.target);
+        await this.tap(t.el, { clickOpts: { full: true } });
+        const input = await this.inj.waitFor(
+          () => this.iframe.contentDocument
+            .querySelector('[data-testid="component-title-bar"] input')
+            ?? t.el.querySelector?.('input'),
+          { timeoutSec: 3, what: 'a text field' });
+        await this.inj.typeText(input, step.text, { cps: 8, tap: false });
+        await this.inj.pressKey('Enter', input);
+        await sleep(400);
+        return;
+      }
+
+      case 'carryCsv':
+        return this._carryCsv(step.to);
+
+      case 'waitFor': {
+        const deadline = performance.now() + step.timeoutSec * 1000;
+        for (;;) {
+          this._checkAbort();
+          const now = await this.snapshot();
+          const extra = { selectionCount: await this.selectionCount() };
+          if (evalCondition(step.cond, this.base, now, extra)) return;
+          if (performance.now() > deadline) {
+            throw new Error(`waitFor "${step.cond}" timed out after ${step.timeoutSec}s`);
+          }
+          await this._sleep(250);
+        }
+      }
+
+      case 'clearSelection': {
+        const dc = this._dataContext ?? 'Mammals';
+        await this.api('create', `dataContext[${dc}].selectionList`, []);
+        await sleep(300);
+        return;
+      }
+
+      case 'revert':
+        this._lastRevert = await this.revert();
+        return;
+
+      default:
+        throw new DemoValidationError(`no interpreter for verb "${step.do}"`);
+    }
+  }
+
+  /** Route a drag to the stack that owns the target (see the P0 table). */
+  async _dragByKind(from, to, profile) {
+    const kind = from.dragKind ?? 'attribute';
+    if (kind === 'tile') {
+      const start = this._center(from.el);
+      const end = to.at ? this._toHost(to.at) : this._center(to.el);
+      await this.goTo(start, { sec: 0.8 });
+      await sleep(140);
+      const r = from.el.getBoundingClientRect();
+      const at = { x: r.left + 16, y: r.top + r.height / 2 };
+      this.cursorPt = this._toHost(at);
+      this.cursor.moveTo(this.cursorPt.x, this.cursorPt.y);
+      this.timelineActive = true;
+      this.phase = 'drag';
+      try {
+        await this.inj.dragTile(from.el,
+          { x: at.x + (end.x - start.x), y: at.y + (end.y - start.y) }, {
+          startAt: at, steps: 22, stepMs: 34,
+          onStep: (pt) => {
+            const h = this._toHost(pt);
+            this.cursorPt = h;
+            this.cursor.moveTo(h.x, h.y);
+          },
+        });
+      } finally { this.timelineActive = false; this.phase = 'idle'; }
+      return;
+    }
+    if (kind === 'axis') {
+      const r = from.el.getBoundingClientRect();
+      await this.goTo(this._center(from.el), { sec: 0.8 });
+      const end = to.at ? to.at : (() => {
+        const tr = to.el.getBoundingClientRect();
+        return { x: tr.left + tr.width / 2, y: tr.top + tr.height / 2 };
+      })();
+      this.timelineActive = true;
+      this.phase = 'drag';
+      try {
+        await this.inj.dragAxis(from.el, end.x - (r.left + r.width / 2), 0, {
+          onStep: (pt) => {
+            const h = this._toHost(pt);
+            this.cursorPt = h;
+            this.cursor.moveTo(h.x, h.y);
+          },
+        });
+      } finally { this.timelineActive = false; this.phase = 'idle'; }
+      return;
+    }
+    // attribute (dnd-kit) — the tutorial centrepiece
+    return this.dragAttribute(from.dragEl ?? from.el, to.el,
+      profile === 'brisk' ? { steps: 18, stepMs: 26 } : {});
+  }
+
+  /**
+   * `carrycsv` — the P8 mechanism, fallback-first BY DESIGN (scope review).
+   * Dot carries a CSV ghost to the drop point and the bridge API commits the
+   * import at touch-down; no synthetic `DataTransfer` file-drop is attempted
+   * unless Chad rejects a recording of this (a bail-out item, not a decision
+   * for this phase).
+   */
+  async _carryCsv(toSpec) {
+    const payload = this.csvPayload;
+    if (!payload) throw new Error('carrycsv: no csvPayload configured');
+    const to = await this._resolve(toSpec);
+    const dst = to.at ? this._toHost(to.at) : this._center(to.el);
+    this.cursor.ghost = true;
+    try {
+      await this.goTo(dst, { sec: 1.4, profile: 'teaching' });
+      await sleep(250);
+      const made = await this.api('create', 'dataContext', payload.context);
+      if (!made?.success) {
+        throw new Error(`carrycsv: import failed ${JSON.stringify(made?.values)}`);
+      }
+      this.created.contexts.push(payload.context.name);
+      await this.api('create', `dataContext[${payload.context.name}].item`, payload.items);
+      // A real file drop opens a case table; the demonstration has to look
+      // like the thing the student is about to do.
+      const table = await this.api('create', 'component', {
+        type: 'caseTable', dataContext: payload.context.name,
+        position: { left: 40, top: 320 }, dimensions: { width: 460, height: 200 },
+      });
+      if (table?.success) this.created.components.push(table.values.id);
+      return made;
+    } finally {
+      this.cursor.ghost = false;
+    }
   }
 }

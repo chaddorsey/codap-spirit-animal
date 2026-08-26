@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chaddorsey.github.io/codap-spirit-animal/demo-script.schema.json",
+  "title": "DemoScript",
+  "description": "One demonstration Dot can perform in a live CODAP document. This file is the NORMATIVE definition: the line notation parses 1:1 into it, an LLM may emit it directly, and web/src/demo/demo-lang.js validates against THIS file before Dot moves a muscle. Externally authored scripts are untrusted input — the verb list is a closed whitelist and a script can only do what a student's mouse could.",
+  "type": "object",
+  "required": ["demo", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "demo": {
+      "type": "string",
+      "description": "Task key. For the tutorials this matches the plugin's task key (MakeGraph, AssignAttribute, ...).",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "leaveChanges": {
+      "type": "boolean",
+      "description": "Skip the automatic revert. Deliberately expressible ONLY in JSON — the line notation cannot say it — and even then the embedding caller must pass an explicit allow flag.",
+      "default": false
+    },
+    "inverseSteps": {
+      "type": "array",
+      "description": "Undo-stack-proof cleanup for effects Undo does not cover. P0 measured exactly one such effect: selection (6 undo clicks changed nothing), whose inverse is clearing the selection list.",
+      "maxItems": 10,
+      "items": { "$ref": "#/definitions/step" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 40,
+      "items": { "$ref": "#/definitions/step" }
+    }
+  },
+  "definitions": {
+    "target": {
+      "type": "string",
+      "description": "A kind:arg[:arg] micro-grammar resolved (never eval'd) by the resolver table in web/src/demo/resolvers.js.",
+      "pattern": "^(toolbar|menu|pill|axisDrop|legendDrop|titleBar|inspector|point|tableColumn|mapRegion|plot|workspace|undo|redo)(:[A-Za-z0-9_ .+-]+){0,3}$"
+    },
+    "condition": {
+      "type": "string",
+      "description": "Evaluated as a DELTA from the demo-start snapshot, so demos behave in a document that already has a graph.",
+      "pattern": "^(component|graphX|graphY|graphLegend|selection|componentMoved)(:[A-Za-z0-9_ .+-]+)?((>=|<=|=|>|<)[0-9]+)?$"
+    },
+    "emote": { "type": "string", "enum": ["!", "?", "?!"] },
+    "step": {
+      "type": "object",
+      "required": ["do"],
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "say" },
+            "emote": { "$ref": "#/definitions/emote" }
+          },
+          "required": ["do", "emote"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "goTo" },
+            "target": { "$ref": "#/definitions/target" },
+            "beside": { "type": "string", "enum": ["left", "right", "above", "below"] }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "peer" },
+            "target": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "tap" },
+            "target": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "openMenu" },
+            "target": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "choose" },
+            "target": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "drag" },
+            "from": { "$ref": "#/definitions/target" },
+            "to": { "$ref": "#/definitions/target" },
+            "profile": { "type": "string", "enum": ["teaching", "brisk"] }
+          },
+          "required": ["do", "from", "to"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "marquee" },
+            "target": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "target"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "type" },
+            "target": { "$ref": "#/definitions/target" },
+            "text": { "type": "string", "maxLength": 60 }
+          },
+          "required": ["do", "target", "text"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "carryCsv" },
+            "to": { "$ref": "#/definitions/target" }
+          },
+          "required": ["do", "to"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "waitFor" },
+            "cond": { "$ref": "#/definitions/condition" },
+            "timeoutSec": { "type": "number", "minimum": 0.5, "maximum": 30 }
+          },
+          "required": ["do", "cond", "timeoutSec"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "beat" },
+            "sec": { "type": "number", "minimum": 0, "maximum": 10 }
+          },
+          "required": ["do", "sec"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": { "do": { "const": "revert" } },
+          "required": ["do"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "clearSelection" }
+          },
+          "required": ["do"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": { "const": "pose" },
+            "clip": { "type": "string", "pattern": "^[a-z_]+[A-Za-z_]*$" }
+          },
+          "required": ["do", "clip"]
+        }
+      ]
+    }
+  }
+}

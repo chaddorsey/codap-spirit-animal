@@ -972,6 +972,11 @@ export function makeBehaviors() {
       preempts: true,                 // a startle that waits its turn isn't one
       trigger(state, event) {
         if (event.type !== 'component:delete') return false;
+        // Phase 9: an undo-driven delete burst during a demo's revert looks
+        // exactly like a student deleting components. Priority already stops
+        // startle preempting `dot-demo` (65 < 90); this makes it explicit, so
+        // the protection survives someone re-tuning priorities later.
+        if (state.active?.id === 'dot-demo') return false;
         const t = now();
         return state.componentDeletes.filter((x) => t - x < STARTLE_WINDOW_SEC)
           .length >= STARTLE_DELETES;

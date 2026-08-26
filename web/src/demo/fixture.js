@@ -35,6 +35,39 @@ export const MAMMALS_COLLECTION = {
 };
 
 /**
+ * The dataset Dot "carries in" for tutorial 1's `Drag` task.
+ *
+ * That task asks the student to drag a CSV file into CODAP, and no page can
+ * synthesise a real file drop — so `carrycsv` is fallback-first BY DESIGN
+ * (scope review): Dot carries a CSV ghost card to the drop point and the
+ * bridge API commits the import at touch-down, opening a case table exactly
+ * as a real drop would. Deliberately a DIFFERENT dataset from the Mammals
+ * fixture, so the demo's import is visibly its own and its revert is
+ * unambiguous.
+ */
+export const DEMO_CSV = {
+  context: {
+    name: 'Cats', title: 'Cats',
+    collections: [{
+      name: 'Cats', title: 'Cats',
+      attrs: [
+        { name: 'Name', type: 'categorical' },
+        { name: 'Coat', type: 'categorical' },
+        { name: 'Weight', type: 'numeric' },
+        { name: 'Age', type: 'numeric' },
+      ],
+    }],
+  },
+  items: [
+    { Name: 'Biscuit', Coat: 'tabby', Weight: 4.2, Age: 3 },
+    { Name: 'Domino', Coat: 'tuxedo', Weight: 5.1, Age: 7 },
+    { Name: 'Marmalade', Coat: 'ginger', Weight: 5.9, Age: 2 },
+    { Name: 'Pepper', Coat: 'grey', Weight: 3.8, Age: 5 },
+    { Name: 'Willow', Coat: 'calico', Weight: 4.6, Age: 1 },
+  ],
+};
+
+/**
  * Create the dataset and its case table if they are not already there.
  * `api` is any `(action, resource, values) => Promise<reply>` with
  * get-verify-retry built in.

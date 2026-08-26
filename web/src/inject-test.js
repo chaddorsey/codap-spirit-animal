@@ -43,14 +43,21 @@ function line(text, cls = 'info') {
 const head = (t) => line(t, 'head');
 
 // --------------------------------------------------------------- API glue
-/** One API call, retried: the phone loses replies (never assume one landed). */
-async function api(action, resource, values, { tries = 4, timeoutMs = 3000 } = {}) {
+/**
+ * One API call. READS are retried (the phone loses replies); WRITES ARE NOT —
+ * a `create` whose reply was dropped still happened, and re-sending it makes a
+ * duplicate component. Verify a write with a follow-up read instead.
+ */
+async function api(action, resource, values, opts = {}) {
+  const isRead = action === 'get' || action === 'notify';
+  const { tries = isRead ? 4 : 1, timeoutMs = isRead ? 3000 : 6000 } = opts;
   for (let i = 0; i < tries; i++) {
     const res = await Promise.race([
       bridge.request(action, resource, values),
       sleep(timeoutMs).then(() => null),
     ]);
     if (res) return res;
+    if (!isRead) return null;
     await sleep(150);
   }
   return null;

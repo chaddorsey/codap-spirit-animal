@@ -8,7 +8,8 @@ import { analyzeDataset, suggestMoves } from './insight.js';
 import { Injector, sameOrigin } from './inject.js';
 import { DemoDriver } from './demo/demo-driver.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
-import { ensureMammals } from './demo/fixture.js';
+import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
+import { parse, toLines, coerce } from './demo/demo-lang.js';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -170,29 +171,94 @@ function setupDemo() {
     log: (t) => logLine(`demo: ${t}`, '#1c63d6') });
 
   const api = (a, r, v, o) => driver.api(a, r, v, o);
+  driver.csvPayload = DEMO_CSV;
+
+  // --- the demo runs as a BEHAVIOR, so the engine arbitrates it -----------
+  // `ignoreActivity: true` is not optional: without it the engine cancels the
+  // demo 0.35 s after its own injected action echoes back as bridge activity.
+  // Priority 90 also means `startle` (65, preempts) cannot displace it, which
+  // matters because an undo burst during revert looks exactly like a student
+  // deleting components.
+  let pendingDemo = null;
+  engine.add({
+    id: 'dot-demo',
+    priority: 90,
+    ignoreActivity: true,
+    cooldownSec: 0,
+    trigger: () => false,                  // only ever force-fired
+    run: async () => {
+      const job = pendingDemo;
+      pendingDemo = null;
+      if (!job) return;
+      try { job.resolve(await driver.runScript(job.script, job.opts)); }
+      catch (err) { job.reject(err); }
+    },
+    onCancel: () => driver.abort('engine cancelled the demo'),
+  });
+
+  /** Everything funnels through here so only one demo can ever be in flight. */
+  function runViaEngine(script, opts) {
+    if (driver.active || pendingDemo) {
+      return Promise.reject(Object.assign(new Error('a demo is already running'),
+        { code: 'dot-demo-busy' }));
+    }
+    return new Promise((resolve, reject) => {
+      pendingDemo = { script, opts, resolve, reject };
+      engine.forceFire('dot-demo');
+    });
+  }
+
+  // --- the script library ------------------------------------------------
+  const scripts = new Map();               // "tutorial1:MakeGraph" -> script
+  const sources = new Map();               // "tutorial1" -> the raw file text
+  async function loadScripts(set = 'tutorial1') {
+    const text = await fetch(`/demo-scripts/${set}.demo`).then((r) => {
+      if (!r.ok) throw new Error(`no script file for "${set}" (${r.status})`);
+      return r.text();
+    });
+    sources.set(set, text);
+    for (const s of parse(text)) scripts.set(`${set}:${s.demo}`, s);
+    logLine(`demo scripts loaded: ${set} (${parse(text).length})`, '#1c63d6');
+    return text;
+  }
 
   demo = {
-    driver, inj,
-    /** Run one of the P1 hard-coded demonstrations by name. */
-    run: async (name, opts) => {
-      const fn = P1_DEMOS[name];
-      if (!fn) throw new Error(`no such demo: ${name} (have ${Object.keys(P1_DEMOS)})`);
-      const wasEnabled = engine.enabled;
-      engine.enabled = false;              // P2 replaces this with a behavior
+    driver, inj, scripts, sources, loadScripts,
+    /** window.__demo.run('tutorial1', 'MakeGraph') */
+    run: async (set, name, opts) => {
+      // P1 compatibility: run('MakeGraph') still drives the hard-coded pair
+      if (name === undefined && P1_DEMOS[set]) {
+        const wasEnabled = engine.enabled;
+        engine.enabled = false;
+        try { return await P1_DEMOS[set](driver, opts); }
+        finally { engine.enabled = wasEnabled; }
+      }
+      if (!scripts.size) await loadScripts(set);
+      const key = `${set}:${name}`;
+      const script = scripts.get(key);
+      if (!script) {
+        throw new Error(`no script "${key}" (have ${[...scripts.keys()].join(', ')})`);
+      }
       try {
-        const r = await fn(driver, opts);
-        logLine(`demo ${name}: sync max ${r.sync?.max}px over ${r.sync?.samples} `
-          + `frames; revert ${r.revert?.clicks} click(s), residue `
+        const r = await runViaEngine(script, opts);
+        logLine(`demo ${key}: ok in ${r.sec}s; sync max ${r.sync?.max}px; `
+          + `revert ${r.revert?.clicks} click(s), residue `
           + `${r.revert?.residue?.length ?? '?'}`, '#0b7285');
         return r;
       } catch (err) {
-        logLine(`demo ${name} FAILED: ${err.message}`, '#c92a2a');
-        await driver.revert({ embodied: false }).catch(() => {});
-        await driver.end();
+        logLine(`demo ${key} FAILED: ${err.message}`, '#c92a2a');
         throw err;
-      } finally {
-        engine.enabled = wasEnabled;
       }
+    },
+    /** Run a script written right now, as line notation or as JSON. */
+    runScript: (text, opts) => runViaEngine(coerce(text), opts),
+    /** Validate without running — parse errors carry line numbers. */
+    check: (text) => coerce(text),
+    toLines,
+    parse,
+    cancel: (why = 'cancelled by caller') => {
+      driver.abort(why);
+      engine.cancelActive(why);
     },
     fixture: (opts) => ensureMammals(api, opts),
     snapshot: () => driver.snapshot(),
@@ -213,7 +279,10 @@ setTimeout(setupDemo, 4000);
 document.querySelector('#demoFixture')?.addEventListener('click',
   () => demo?.fixture({ force: false }).then((id) => logLine(`fixture ready (table ${id})`, '#0b7285')));
 for (const b of document.querySelectorAll('[data-demo]')) {
-  b.onclick = () => demo?.run(b.dataset.demo).catch(() => {});
+  b.onclick = () => {
+    const [set, name] = b.dataset.demo.split(':');
+    demo?.run(set, name).catch(() => {});
+  };
 }
 
 // ------------------------------------------------------------- Dot's mind

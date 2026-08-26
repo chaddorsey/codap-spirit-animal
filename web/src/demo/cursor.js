@@ -43,6 +43,25 @@ export class DemoCursor {
       toe.position.set(0, u(dy) * scale, -u(dx) * scale);
       this.group.add(toe);
     }
+    // The `carrycsv` ghost: a little data-file card Dot carries to the drop
+    // point. It stands in for a real file drag, which no page can synthesise.
+    this.ghostMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(u(34) * scale, u(42) * scale),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true,
+                                    opacity: 0.94, depthTest: false }));
+    this.ghostMesh.rotation.y = Math.PI / 2;
+    this.ghostMesh.position.set(0.02, u(26) * scale, 0);
+    this.ghostMesh.visible = false;
+    for (const dy of [12, 4, -4, -12]) {
+      const rule = new THREE.Mesh(
+        new THREE.PlaneGeometry(u(22) * scale, u(3) * scale),
+        new THREE.MeshBasicMaterial({ color: 0x7fb3d5, transparent: true,
+                                      opacity: 0.9, depthTest: false }));
+      rule.position.set(0.01, u(dy) * scale, 0);
+      this.ghostMesh.add(rule);
+    }
+    this.group.add(this.ghostMesh);
+
     // in front of Dot so the print is never swallowed by her body
     this.group.renderOrder = 10;
     this.visible = false;
@@ -62,7 +81,14 @@ export class DemoCursor {
     this.group.visible = true;
   }
 
-  hide() { this.visible = false; this.group.visible = false; }
+  hide() { this.visible = false; this.group.visible = false; this.setGhost(false); }
+
+  /** Carry (or drop) the CSV ghost card. */
+  setGhost(on) { this.ghostMesh.visible = !!on; }
+
+  get ghost() { return this.ghostMesh.visible; }
+
+  set ghost(v) { this.setGhost(v); }
 
   /** Press feedback: the print squashes at the instant of a tap. */
   press(k) {
