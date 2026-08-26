@@ -221,12 +221,23 @@ conditions are evaluated as **deltas from demo-start state** (e.g.
 `component:graph` means "one MORE graph than at demo start"), so demos
 behave in dirty documents where a graph already exists.
 
+> **AMENDED 2026-08-26 — the wall-clock cap was 60s, raised to 120s by Chad.**
+> The original 60s was a recorded decision and was NOT changed by the
+> implementer; it blocked `MakeScatterplot` (tutorial 2's first task), which
+> needs ~85-100s reproducibly. Twelve attempts failed at 60s. Measured cause:
+> the task is three CODAP mutations in one demonstration, and on an idle page a
+> single tool-shelf click costs CODAP 8.6s plus 5.1s of settle while Dot's own
+> choreography is ~2.5s per action. The two alternatives — splitting the task
+> into two demonstrations, or leaving it on its MP4 — were put to Chad with
+> measurements; he chose the cap. Full evidence:
+> `docs/verification/phase9/MAKESCATTERPLOT-ISSUE.md` and `BAILOUTS.md` #3.
+
 **Safety contract for externally-authored scripts** (LLM output is
 untrusted input): schema validation rejects unknown verbs/targets
 before execution; verbs are a closed whitelist (a script can only do
 what a student's mouse could); hard caps — ≤40 steps, ≤10 document
 mutations (enforced by live state diff, not notification counting),
-≤60s wall clock; `revert` is appended automatically unless the script
+≤120s wall clock; `revert` is appended automatically unless the script
 declares `"leaveChanges": true` AND the embedding caller passes an
 explicit allow flag (this flag exists only in JSON, deliberately — the
 line surface cannot express it).

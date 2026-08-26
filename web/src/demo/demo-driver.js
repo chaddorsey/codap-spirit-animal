@@ -45,7 +45,11 @@ const MUTATING_VERBS = new Set([
 export const CAPS = {
   steps: 40,          // also enforced by the schema
   mutations: 10,      // measured by LIVE STATE DIFF, never by counting events
-  wallClockSec: 60,
+  // 120, not 60. Raised by Chad on 2026-08-26 so MakeScatterplot can run
+  // live: that task is three CODAP mutations in one demonstration and needs
+  // ~85-100s on this hardware, of which ~2.5s per action is Dot and the rest
+  // is CODAP's main thread. See docs/verification/phase9/MAKESCATTERPLOT-ISSUE.md.
+  wallClockSec: 120,
   undoClicks: 8,
 };
 
@@ -359,6 +363,14 @@ export class DemoDriver {
     // Diff entries this demo is RESPONSIBLE for, keyed. Revert undoes these
     // and nothing else — see the redo-guard in revert().
     this.ownKeys = new Set();
+    // Components THIS demo created. Anything that shows up on one of these is
+    // ours by construction — the component did not exist before the demo, so
+    // it cannot hold student work. Needed because CODAP settles AFTER the step
+    // that made the change and emits late entries (axis bounds, a promoted
+    // field) that ownKeys never got the chance to claim; those looked foreign,
+    // the first Undo cleared them, and the redo-guard concluded it had just
+    // undone the student and stopped with our own graph still on screen.
+    this.ownComponents = new Set();
     this._dataContext = null;
     this.base = await this.snapshot();
     this.baseSelection = await this.selectionCount().catch(() => 0);
@@ -596,6 +608,46 @@ export class DemoDriver {
    * button, and stop the moment the diff stops shrinking — that is what
    * protects a student change that landed on the undo stack mid-demo.
    */
+  /**
+   * A signature of the whole document state we track. Progress during revert
+   * is measured against THIS, not against the diff.
+   *
+   * The diff cannot measure it: `diff()` emits a single `added` entry for a
+   * component that was not in the base and never compares its fields, so a
+   * demo that creates a graph and puts two attributes on it produces exactly
+   * one diff entry. Undoing an attribute then leaves the diff byte-identical,
+   * the old stall check read that as "nothing of ours changed", and revert
+   * stopped after one click with the graph still in the student's document.
+   */
+  static snapSig(snap) {
+    const cs = (snap.components ?? [])
+      .map((c) => [c.id, c.type, c.title, c.x, c.y, c.legend, c.hidden,
+                   c.onlySelected, c.left, c.top, c.w, c.h])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    return JSON.stringify([cs, [...(snap.contexts ?? [])].sort()]);
+  }
+
+  /**
+   * Wait for an Undo to visibly change the document, then report the new diff.
+   * Returns as soon as anything moves, so a fast undo costs one poll and only
+   * a genuine no-op pays the full wait.
+   */
+  async _afterUndo(prevSig, { maxMs = 8000, everyMs = 400 } = {}) {
+    const t0 = performance.now();
+    for (;;) {
+      const snap = await this.snapshot({ maxAgeMs: 0 });
+      const sig = DemoDriver.snapSig(snap);
+      if (sig !== prevSig) {
+        return { diff: this.diff(snap, this.base), sig, changed: true };
+      }
+      if (performance.now() - t0 >= maxMs) {
+        return { diff: this.diff(snap, this.base), sig, changed: false };
+      }
+      await sleep(everyMs);
+      this._checkAbort();
+    }
+  }
+
   async revert({ embodied = true, cap = CAPS.undoClicks } = {}) {
     const doc = this.iframe.contentDocument;
     const undo = doc.querySelector('[data-testid="tool-shelf-button-undo"]');
@@ -617,16 +669,14 @@ export class DemoDriver {
     // that is not ours disappear, we just undid the student. Redo it at once
     // (P0 measured redo restores 6/6 primitives exactly) and stop, residue and
     // all. Recorded in docs/verification/phase9/P2-NOTES.md.
-    const isOwn = (e) => this.ownKeys.has(DemoDriver.diffKey(e));
+    const isOwn = (e) => this.ownKeys.has(DemoDriver.diffKey(e))
+      || (e.id != null && this.ownComponents.has(String(e.id)));
     const foreignCount = (list) => list.filter((e) => !isOwn(e)).length;
-
-    const ownKeySig = (list) =>
-      list.filter(isOwn).map(DemoDriver.diffKey).sort().join('|');
 
     let clicks = 0;
     let redone = false;
-    let prevOwn = ownKeySig(d);
     let foreign = foreignCount(d);
+    let prevSig = DemoDriver.snapSig(await this.snapshot({ maxAgeMs: 0 }));
     while (d.some(isOwn) && clicks < cap) {
       if (embodied && !this.aborted) {
         // The FIRST undo gets the full tap — paw raised, clip, contact. After
@@ -648,7 +698,14 @@ export class DemoDriver {
         await sleep(700);
       }
       clicks += 1;
-      const next = this.diff(await this.snapshot(), this.base);
+      // WAIT FOR THE UNDO TO LAND, do not assume it has. CODAP applies an undo
+      // over several seconds; the short press above returns in ~0.7s. Sampling
+      // the diff straight away showed "nothing of ours changed" for an undo
+      // that had plainly worked, so the loop stopped early and left the demo's
+      // own graph in the student's document (measured: residue 1, a graph
+      // added and never removed). Poll until something actually moves.
+      const probe = await this._afterUndo(prevSig);
+      const next = probe.diff;
       if (foreignCount(next) < foreign) {
         const redo = doc.querySelector('[data-testid="tool-shelf-button-redo"]');
         if (redo) {
@@ -665,13 +722,12 @@ export class DemoDriver {
       // the bounds — so a length-based stall check saw "no progress" after a
       // click that had plainly worked and stopped with the demo's own graph
       // still on screen. Stop only when nothing of ours moved at all.
-      const nextOwn = ownKeySig(next);
-      if (nextOwn === prevOwn) {
-        this.log(`revert: that Undo changed nothing of ours — stopping (${next.length} left)`);
+      if (!probe.changed) {
+        this.log(`revert: that Undo changed nothing at all — stopping (${next.length} left)`);
         d = next;
         break;
       }
-      prevOwn = nextOwn;
+      prevSig = probe.sig;
       foreign = foreignCount(next);
       d = next;
     }
@@ -891,7 +947,10 @@ export class DemoDriver {
         if (!MUTATING_VERBS.has(step.do)) continue;
         const d = this.diff(
           await this.snapshot({ maxAgeMs: step.do === 'waitFor' ? 500 : 0 }), this.base);
-        for (const e of d) this.ownKeys.add(DemoDriver.diffKey(e));
+        for (const e of d) {
+          this.ownKeys.add(DemoDriver.diffKey(e));
+          if (e.kind === 'added' && e.id != null) this.ownComponents.add(String(e.id));
+        }
         if (d.length > CAPS.mutations) {
           throw new Error(
             `demo made ${d.length} document changes, cap is ${CAPS.mutations}`);
