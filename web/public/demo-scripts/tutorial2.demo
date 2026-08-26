@@ -2,6 +2,7 @@ demo MakeScatterplot
   say !
   tap toolbar:graph
   wait component:graph 8s
+  beat 1.5
   drag pill:Age -> axisDrop:bottom teaching
   wait graphX:Age 8s
   drag pill:Height -> axisDrop:left teaching

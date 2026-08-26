@@ -352,6 +352,7 @@ export class DemoDriver {
     this.allSamples = [];
     this.tapErrors = [];
     this.stepTimings = [];
+    this._refreshFrameRect();
     // ids/names this demo creates itself — the ONLY things revert is allowed
     // to delete outright when Undo will not reach them
     this.created = { contexts: [], components: [] };
@@ -505,8 +506,31 @@ export class DemoDriver {
    * @param {Element|{x,y}} dstElOrPoint  a resolver may hand us a POINT when
    *   the zone's centre is under another tile (see resolvers.clearPointIn)
    */
+  /**
+   * Wait until the page is actually drawing again, up to `maxMs`.
+   *
+   * A drag started while CODAP is still building a freshly created graph costs
+   * five to ten times what the same drag costs a moment later (measured on one
+   * page, same script: 39.5 s vs 8.0 s), because every injected pointermove
+   * queues behind that work. Frames are the honest signal — the API answers
+   * long before the page is responsive.
+   */
+  async _waitForIdle({ maxMs = 4000, frameMs = 60, need = 3 } = {}) {
+    const deadline = performance.now() + maxMs;
+    let good = 0;
+    let last = performance.now();
+    while (good < need && performance.now() < deadline) {
+      await new Promise((r) => requestAnimationFrame(r));
+      const now = performance.now();
+      good = (now - last) <= frameMs ? good + 1 : 0;
+      last = now;
+    }
+    return good >= need;
+  }
+
   async dragAttribute(srcEl, dstElOrPoint, opts = {}) {
     this._checkAbort();
+    await this._waitForIdle();
     const sr = srcEl.getBoundingClientRect();
     const start = this._toHost({ x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 });
     await this.goTo(start, { sec: 0.8 });
@@ -522,7 +546,8 @@ export class DemoDriver {
     this.phase = 'drag';
     try {
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
-        steps: 26, stepMs: 34, settleMs: 320,
+        // few injected moves, for the reason in inject.dragAttribute
+        steps: 12, stepMs: 55, settleMs: 320,
         onStep: (pt) => {
           const h = this._toHost(pt);
           this.cursorPt = h;
@@ -546,8 +571,20 @@ export class DemoDriver {
    * viewport at (0,0) today, but never assume it: read the frame's rect.
    */
   _toHost(pt) {
-    const fr = this.iframe.getBoundingClientRect();
+    // CACHED. This runs per injected pointermove, and
+    // `iframe.getBoundingClientRect()` forces a synchronous layout flush of
+    // the whole page — including everything CODAP has pending mid-drag. That
+    // single call was the difference between a 3 s drag in isolation and a
+    // 58 s drag inside a demo. The frame does not move during a demo; the
+    // rect is refreshed when one begins.
+    const fr = this._frameRect ?? this._refreshFrameRect();
     return { x: pt.x + fr.left, y: pt.y + fr.top };
+  }
+
+  _refreshFrameRect() {
+    const r = this.iframe.getBoundingClientRect();
+    this._frameRect = { left: r.left, top: r.top };
+    return this._frameRect;
   }
 
   // --------------------------------------------------------------- revert
@@ -580,9 +617,12 @@ export class DemoDriver {
     const isOwn = (e) => this.ownKeys.has(DemoDriver.diffKey(e));
     const foreignCount = (list) => list.filter((e) => !isOwn(e)).length;
 
+    const ownKeySig = (list) =>
+      list.filter(isOwn).map(DemoDriver.diffKey).sort().join('|');
+
     let clicks = 0;
     let redone = false;
-    let prev = d.length;
+    let prevOwn = ownKeySig(d);
     let foreign = foreignCount(d);
     while (d.some(isOwn) && clicks < cap) {
       if (embodied && !this.aborted) {
@@ -604,12 +644,18 @@ export class DemoDriver {
         d = this.diff(await this.snapshot(), this.base);
         break;
       }
-      if (next.length >= prev) {
-        this.log(`revert: diff stopped shrinking at ${next.length} — stopping`);
+      // Progress is measured on OUR entries, not on the diff's total length.
+      // An undo also nudges things it did not cause — clearing an axis moves
+      // the bounds — so a length-based stall check saw "no progress" after a
+      // click that had plainly worked and stopped with the demo's own graph
+      // still on screen. Stop only when nothing of ours moved at all.
+      const nextOwn = ownKeySig(next);
+      if (nextOwn === prevOwn) {
+        this.log(`revert: that Undo changed nothing of ours — stopping (${next.length} left)`);
         d = next;
         break;
       }
-      prev = next.length;
+      prevOwn = nextOwn;
       foreign = foreignCount(next);
       d = next;
     }
@@ -920,7 +966,7 @@ export class DemoDriver {
         try {
           await this.inj.marquee({ x: r.left + 6, y: r.top + 6 },
                                  { x: r.right - 6, y: r.bottom - 6 }, {
-            steps: 20, stepMs: 34,
+            steps: 10, stepMs: 55,
             onStep: (pt) => {
               const h = this._toHost(pt);
               this.cursorPt = h;
@@ -998,7 +1044,7 @@ export class DemoDriver {
       try {
         await this.inj.dragTile(from.el,
           { x: at.x + (end.x - start.x), y: at.y + (end.y - start.y) }, {
-          startAt: at, steps: 22, stepMs: 34,
+          startAt: at, steps: 12, stepMs: 55,
           onStep: (pt) => {
             const h = this._toHost(pt);
             this.cursorPt = h;
@@ -1031,7 +1077,7 @@ export class DemoDriver {
     // attribute (dnd-kit) — the tutorial centrepiece. `to.at` is the resolver's
     // reachable point, which is NOT the zone's centre when a tile overlaps it.
     return this.dragAttribute(from.dragEl ?? from.el, to.at ?? to.el,
-      profile === 'brisk' ? { steps: 18, stepMs: 26 } : {});
+      profile === 'brisk' ? { steps: 8, stepMs: 40 } : {});
   }
 
   /**

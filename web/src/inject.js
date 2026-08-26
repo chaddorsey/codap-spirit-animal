@@ -314,10 +314,23 @@ export class Injector {
 
   // --- named recipes: one per drag stack, each pinned by P0 measurement ---
 
-  /** dnd-kit: case-table attribute pill (or axis label) -> a drop zone. */
+  /**
+   * dnd-kit: case-table attribute pill (or axis label) -> a drop zone.
+   *
+   * FEW MOVES. CODAP re-runs its collision detection over every droppable on
+   * each `pointermove`, and the cost is badly super-linear — measured on one
+   * page, same drag, all three landing correctly:
+   *
+   *     26 moves -> 40.7 s        14 moves -> 18.7 s        8 moves -> 3.2 s
+   *
+   * That, not the API and not our renderer, is what was pushing demos past
+   * their 60 s cap. dnd-kit needs only a few px of travel to activate and a
+   * final position to drop on; smoothness belongs to the paw and the paw
+   * print, which ride the same timeline and are redrawn per frame.
+   */
   async dragAttribute(from, to, opts = {}) {
     return this.dragPointer(from, to, {
-      steps: 16, stepMs: 30, useHandle: true,
+      steps: 12, stepMs: 45, useHandle: true,
       moveTarget: 'document', upOn: 'document', ...opts,
     });
   }

@@ -442,7 +442,16 @@ setInterval(() => {
 const clock = { last: performance.now() };
 stage.renderer.setAnimationLoop(() => {
   const now = performance.now();
-  const dt = Math.min(0.05, (now - clock.last) / 1000);
+  // The clamp is a guard against one enormous jump after a tab is backgrounded,
+  // NOT a speed limit — but at 0.05 s it was acting as one. CODAP's own work
+  // drags this page down to ~4 fps while a demo runs (measured: 26 fps idle,
+  // 3.8 fps mid-demo, with single frame gaps of 6-12 s), and clamping dt to
+  // 50 ms meant the animation mixer advanced 50 ms per frame no matter how
+  // long the frame actually took. Clips ran at a FIFTH of their real speed: a
+  // 1.4 s tap took 7-33 s of wall clock, which is what was pushing demos past
+  // their 60 s cap. 0.25 s keeps the backgrounded-tab guard and lets clips
+  // play in real time when frames are sparse.
+  const dt = Math.min(0.25, (now - clock.last) / 1000);
   clock.last = now;
   axo.update(dt);
   // AFTER axo.update so the skeleton is current this frame: the driver reads

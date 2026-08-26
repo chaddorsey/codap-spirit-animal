@@ -152,12 +152,32 @@ export const TARGETS = {
     return { el: btn, dragEl: handle, clickShape: 'full', dragKind: 'attribute' };
   },
 
-  /** axisDrop:bottom | axisDrop:left — the graph's attribute drop zones. */
+  /**
+   * axisDrop:bottom | axisDrop:left — the graph's attribute drop zones.
+   *
+   * AIM LOW. dnd-kit resolves what you are over from the DRAGGED ITEM'S rect,
+   * and the item — a case-table column header — sits above the cursor, so a
+   * pointer at a zone's vertical centre leaves the item outside it. Measured
+   * on the left zone, same drag, five aim points:
+   *
+   *     (0.50, 0.50) no over, no drop      (0.25, 0.50) no over, no drop
+   *     (0.72, 0.50) no over, no drop
+   *     (0.50, 0.75) over -> Height on y   (0.28, 0.75) over -> Height on y
+   *
+   * The legend drop wants the same treatment for the same reason; see
+   * legendDrop. `clearPointIn` remains the fallback for a covered zone.
+   */
   axisDrop: (args, ctx) => {
     const side = args[0] === 'left' ? 'left' : 'bottom';
     const g = graphEl(ctx.doc, `axisDrop:${side}`, Number(args[1]) || 0);
     const el = q(g, `[data-testid="add-attribute-drop-${side}"]`, `axisDrop:${side}`);
-    const at = clearPointIn(el, ctx.doc);
+    const r = el.getBoundingClientRect();
+    const [fx, fy] = side === 'left' ? [0.4, 0.75] : [0.5, 0.62];
+    const aim = { x: r.left + r.width * fx, y: r.top + r.height * fy };
+    const hit = ctx.doc.elementFromPoint(aim.x, aim.y);
+    const tile = el.closest?.('.free-tile-component');
+    const reachable = hit && (el.contains?.(hit) || hit === el || (tile && tile.contains(hit)));
+    const at = reachable ? aim : clearPointIn(el, ctx.doc);
     if (!at) throw new TargetNotFound(`axisDrop:${side}`, 'the zone is fully covered by another tile');
     return { el, at, dragKind: 'attribute' };
   },
