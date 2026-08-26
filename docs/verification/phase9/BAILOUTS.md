@@ -159,6 +159,43 @@ cost: a drag onto a **freshly created, still-rendering graph** costs roughly
 5 s per move no matter how few moves there are. The same drag onto a settled
 graph costs 3.2 s in total.
 
+### Three more attempts, and the last structural alternative is closed
+
+Re-tested after the bail-out was first written, because two ideas remained.
+
+**Idea 1 — wait much longer before each drag.** A drag onto a settled graph
+costs 3.2 s versus ~5 s per move onto a still-rendering one, so the idle-wait
+was raised from 4 s to 12 s to buy that difference. Three fresh attempts:
+
+```
+run 1  say 1.0  tap 16.5                                  -> cap
+run 2  say 4.4  tap 20.5  beat 1.5  drag 75.5             -> cap
+run 3  say 0.5  tap 16.9  beat 1.5  drag 15.9  drag 27.3  -> cap at 60.1 s
+```
+
+Run 3 got closer than any run before it — it completed both drags and died on
+the clock — but run 2 was the worst ever recorded. The wait is a coin flip, not
+a fix: when the page never reaches idle it simply spends the full 12 s and then
+pays for the slow drag anyway. **Reverted**; the code is back to the 4 s wait
+that produced the verified five greens, so those results still stand.
+
+**Idea 2 — skip the tool-shelf click entirely.** In CODAP a student can also
+make a graph by dragging an attribute onto empty workspace, which would make
+this task two mutations instead of three and avoid the click that measured
+8.6–64.3 s. **Not available in this document.** Probing six candidate points
+across the lower workspace, every one is owned by a component:
+
+```
+0.50,0.88 owned   0.75,0.85 owned   0.30,0.90 owned
+0.90,0.60 owned   0.50,0.75 owned   0.15,0.75 owned
+```
+
+The tutorial-2 layout fills the workspace with the plugin panel and the case
+table, so there is nowhere to drop. Clearing a space would itself cost the
+mutations this was meant to save.
+
+**Nine fresh attempts with the final code, zero green.** The bail-out stands.
+
 ### It is the script's SIZE, not its correctness
 
 The script has completed green, with an empty revert, at **50.4 s**:

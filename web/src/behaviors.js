@@ -1029,6 +1029,9 @@ export function makeBehaviors() {
         && [...state.components.values()].some((c) => c.bounds),
       async run(actor, state, ctx) {
         const tiles = [...state.components.values()].filter((c) => c.bounds);
+        // The trigger saw a tile, but `run` happens later and components come
+        // and go — a demo that deletes a graph empties this between the two.
+        if (!tiles.length) return;
         const fresh = tiles.filter((c) => !ctx.mem[`seen-${c.id}`]);
         const c = ctx.pick(fresh.length ? fresh : tiles);
         ctx.mem[`seen-${c.id}`] = true;
