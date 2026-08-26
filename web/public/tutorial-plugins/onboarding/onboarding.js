@@ -206,6 +206,49 @@ class TutorialView extends React.Component {
                          && !this.isAccomplished('MakeScatterplot'));
       if (!wantsDrag && !wantsAttrs) { clearInterval(this.dotTaskPoll); return; }
 
+      // DOT-FORK 8/8: on v3 a `dataContextFromURL` import opens NO case table
+      // (measured: tutorial 2 came up with the nhanes context loaded and not a
+      // single attribute pill on screen, so there was nothing to drag onto an
+      // axis and the tutorial could not be completed at all). v2 opened one.
+      //
+      // This lives in the POLL, not in the import's `.then`, because that
+      // reply is dropped often enough to matter — hanging the fix off it left
+      // the table unopened on two runs out of three. Nothing here depends on a
+      // reply arriving.
+      var openBoundTable = function () {
+        codapInterface.sendRequest({ action: 'get', resource: 'dataContextList' })
+          .then(function (iCtx) {
+            var first = ((iCtx && iCtx.values) || [])[0];
+            if (!first) return;
+            codapInterface.sendRequest({
+              action: 'create', resource: 'component',
+              values: { type: 'caseTable', dataContext: first.name,
+                        position: { left: 420, top: 5 },
+                        dimensions: { width: 560, height: 260 } },
+            });
+          });
+      };
+      codapInterface.sendRequest({ action: 'get', resource: 'componentList' })
+        .then(function (iList) {
+          if (!iList || !iList.success) return;
+          var table = (iList.values || []).find(function (c) {
+            return /caseTable/i.test(c.type);
+          });
+          if (!table) return openBoundTable();
+          // A table created too soon after the import comes up UNBOUND: no
+          // columns, no attribute pills, and — the tell we can check without
+          // reaching into CODAP's DOM — no `dataContext` in its own props.
+          // Replace it; an unbound table is worse than none, because the
+          // student sees a table and still cannot drag anything out of it.
+          codapInterface.sendRequest({ action: 'get',
+            resource: 'component[' + table.id + ']' }).then(function (iProps) {
+              if (!iProps || !iProps.success) return;
+              if (iProps.values && iProps.values.dataContext) return;   // bound, fine
+              codapInterface.sendRequest({ action: 'delete',
+                resource: 'component[' + table.id + ']' }).then(openBoundTable);
+            });
+        });
+
       if (wantsDrag) {
         codapInterface.sendRequest({ action: 'get', resource: 'dataContextList' })
           .then(function (iResult) {

@@ -34,7 +34,7 @@
     "target": {
       "type": "string",
       "description": "A kind:arg[:arg] micro-grammar resolved (never eval'd) by the resolver table in web/src/demo/resolvers.js.",
-      "pattern": "^(toolbar|menu|pill|axisDrop|legendDrop|titleBar|inspector|point|tableColumn|mapRegion|plot|workspace|undo|redo)(:[A-Za-z0-9_ .+-]+){0,3}$"
+      "pattern": "^(toolbar|menu|pill|axisDrop|legendDrop|titleBar|inspector|point|tableColumn|mapRegion|plot|plotQuad|workspace|undo|redo)(:[A-Za-z0-9_ .+-]+){0,3}$"
     },
     "condition": {
       "type": "string",

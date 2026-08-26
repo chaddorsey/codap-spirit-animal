@@ -1,0 +1,59 @@
+demo MakeScatterplot
+  say !
+  tap toolbar:graph
+  wait component:graph 8s
+  drag pill:Age -> axisDrop:bottom teaching
+  wait graphX:Age 8s
+  drag pill:Height -> axisDrop:left teaching
+  wait graphY:Height 8s
+  beat 1.2
+  revert
+  say ?
+
+demo SelectCases
+  say !
+  peer plotQuad:center
+  marquee plotQuad:center
+  wait selection>=2 10s
+  beat 1.6
+  revert
+  say ?
+
+demo HideUnselected
+  say !
+  marquee plotQuad:center
+  wait selection>=2 10s
+  tap titleBar:graph
+  openmenu inspector:graph:hideShow
+  choose menu:hideShow:1
+  beat 1.8
+  revert
+  say ?
+
+demo Deselect
+  say !
+  marquee plotQuad:center
+  wait selection>=2 10s
+  beat 1.2
+  tap plotQuad:tl
+  beat 1.4
+  revert
+  say ?
+
+demo Rescale
+  say !
+  tap titleBar:graph
+  peer inspector:graph:rescale
+  tap inspector:graph:rescale
+  beat 1.8
+  revert
+  say ?
+
+demo MakeLegend
+  say !
+  peer pill:Sex
+  drag pill:Sex -> legendDrop teaching
+  wait graphLegend:Sex 12s
+  beat 1.6
+  revert
+  say ?

@@ -125,6 +125,11 @@ export const TARGETS = {
       : list === 'axisBottom' ? '[data-testid="axis-legend-attribute-menu-list-bottom"]'
       : list === 'axisLeft' ? '[data-testid="axis-legend-attribute-menu-list-left"]'
       : list === 'column' ? '[data-testid="attribute-menu-list"]'
+      // the graph inspector's hide/show menu. Items, by index (v3.1.0):
+      // 0 Hide Selected Cases, 1 Hide Unselected Cases, 2 Show All Cases,
+      // 3 Add Filter Formula, 4 Display Only Selected Cases,
+      // 5 Show Parent Visibility Toggles, 6 Show Measures for Selection
+      : list === 'hideShow' ? '[data-testid="hide-show-menu-list"]'
       : null;
     if (!sel) throw new TargetNotFound(`menu:${list}`, 'known menu lists');
     const listEl = q(ctx.doc, sel, `menu:${list}`);
@@ -157,13 +162,27 @@ export const TARGETS = {
     return { el, at, dragKind: 'attribute' };
   },
 
-  /** legendDrop — the plot body, which also accepts a legend attribute. */
+  /**
+   * legendDrop — the plot body, which also accepts a legend attribute.
+   *
+   * Aim LOW AND RIGHT, not at the centre. dnd-kit decides what you are over
+   * from the DRAGGED ITEM'S rect, not from the pointer, and the dragged item
+   * is a case-table column header (~50x29) hanging off the cursor. Dropped at
+   * the plot's centre it still overlaps the axis droppables and the plot never
+   * reaches `over` — measured: centre and upper-left both did nothing three
+   * times, lower-right set the legend first try.
+   */
   legendDrop: (args, ctx) => {
     const g = graphEl(ctx.doc, 'legendDrop', Number(args[0]) || 0);
     const el = g.querySelector('.droppable-plot')
       ?? g.querySelector('[data-testid="plot-cell-background"]');
     if (!el) throw new TargetNotFound('legendDrop', '.droppable-plot');
-    const at = clearPointIn(el, ctx.doc);
+    const r = el.getBoundingClientRect();
+    const aim = { x: r.left + r.width * 0.78, y: r.top + r.height * 0.78 };
+    const hit = ctx.doc.elementFromPoint(aim.x, aim.y);
+    const tile = el.closest?.('.free-tile-component');
+    const clear = hit && (el.contains?.(hit) || hit === el || (tile && tile.contains(hit)));
+    const at = clear ? aim : clearPointIn(el, ctx.doc);
     if (!at) throw new TargetNotFound('legendDrop', 'the plot is fully covered by another tile');
     return { el, at, dragKind: 'attribute' };
   },
@@ -173,6 +192,36 @@ export const TARGETS = {
     const g = graphEl(ctx.doc, 'plot', Number(args[0]) || 0);
     const el = q(g, 'canvas', 'plot');
     return { el, dragKind: 'canvas', clickShape: 'full' };
+  },
+
+  /**
+   * plotQuad:<where> — a NAMED REGION of the plot, so a script can say
+   * "marquee a subset of the points" or "click an empty corner" without ever
+   * naming a pixel. `where` is one of tl, tr, bl, br, center.
+   *
+   * Tutorial 2's SelectCases asks for "a selection rectangle around a SUBSET
+   * of the points", which a whole-plot marquee does not demonstrate.
+   */
+  plotQuad: (args, ctx) => {
+    const where = args[0] ?? 'center';
+    const g = graphEl(ctx.doc, `plotQuad:${where}`, Number(args[1]) || 0);
+    const el = q(g, 'canvas', `plotQuad:${where}`);
+    const bg = g.querySelector('[data-testid="plot-cell-background"]') ?? el;
+    const r = bg.getBoundingClientRect();
+    const frac = {
+      tl: [0.06, 0.06, 0.44, 0.44], tr: [0.56, 0.06, 0.94, 0.44],
+      bl: [0.06, 0.56, 0.44, 0.94], br: [0.56, 0.56, 0.94, 0.94],
+      center: [0.28, 0.24, 0.72, 0.68],
+    }[where];
+    if (!frac) throw new TargetNotFound(`plotQuad:${where}`, 'tl|tr|bl|br|center');
+    const rect = {
+      left: r.left + r.width * frac[0], top: r.top + r.height * frac[1],
+      right: r.left + r.width * frac[2], bottom: r.top + r.height * frac[3],
+    };
+    rect.width = rect.right - rect.left;
+    rect.height = rect.bottom - rect.top;
+    return { el, rect, at: { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
+             dragKind: 'canvas', clickShape: 'full' };
   },
 
   /** titleBar:graph[:n] — the tile's draggable title bar. */

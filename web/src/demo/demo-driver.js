@@ -231,6 +231,11 @@ export class DemoDriver {
         x: v.xAttributeName ?? null, y: v.yAttributeName ?? null,
         legend: v.legendAttributeName ?? null,
         xLo: v.xLowerBound ?? null, xHi: v.xUpperBound ?? null,
+        // Hiding cases changes nothing the component list or the axes show, so
+        // without this the diff is BLIND to it: a HideUnselected demo left 74
+        // cases hidden in the student's document and reported residue 0.
+        hidden: Array.isArray(v.hiddenCases) ? v.hiddenCases.length : 0,
+        onlySelected: !!v.displayOnlySelectedCases,
       });
     }
     out.components.sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -252,7 +257,8 @@ export class DemoDriver {
     for (const [id, c] of nowById) {
       const b = baseById.get(id);
       if (!b) { out.push({ kind: 'added', id, type: c.type }); continue; }
-      for (const f of ['title', 'left', 'top', 'w', 'h', 'x', 'y', 'legend', 'xLo', 'xHi']) {
+      for (const f of ['title', 'left', 'top', 'w', 'h', 'x', 'y', 'legend',
+                       'xLo', 'xHi', 'hidden', 'onlySelected']) {
         if (JSON.stringify(c[f]) !== JSON.stringify(b[f])) {
           out.push({ kind: 'changed', id, field: f, from: b[f], to: c[f] });
         }
@@ -352,6 +358,7 @@ export class DemoDriver {
     // Diff entries this demo is RESPONSIBLE for, keyed. Revert undoes these
     // and nothing else — see the redo-guard in revert().
     this.ownKeys = new Set();
+    this._dataContext = null;
     this.base = await this.snapshot();
     this.baseSelection = await this.selectionCount().catch(() => 0);
 
@@ -648,8 +655,8 @@ export class DemoDriver {
     // it always needs its inverse.
     const sel = await this.selectionCount().catch(() => 0);
     if (sel > 0 && !this.baseSelection) {
-      await this.api('create',
-        `dataContext[${this._dataContext ?? 'Mammals'}].selectionList`, []);
+      const dc = await this.dataContextName();
+      if (dc) await this.api('create', `dataContext[${dc}].selectionList`, []);
     }
 
     if (d.length) this.log(`revert residue: ${JSON.stringify(d)}`);
@@ -666,6 +673,7 @@ export class DemoDriver {
     const API_FIELD = {
       x: 'xAttributeName', y: 'yAttributeName', legend: 'legendAttributeName',
       title: 'title', xLo: 'xLowerBound', xHi: 'xUpperBound',
+      onlySelected: 'displayOnlySelectedCases',
     };
     const base = this.base.components.find((c) => String(c.id) === String(id));
     const values = {};
@@ -675,6 +683,12 @@ export class DemoDriver {
         values.position = { left: base?.left, top: base?.top };
       } else if (item.field === 'w' || item.field === 'h') {
         values.dimensions = { width: base?.w, height: base?.h };
+      } else if (item.field === 'hidden') {
+        // Only an empty base is reconstructible — we record how MANY cases
+        // were hidden, not which. Restoring to "nothing hidden" covers every
+        // real demo; anything else is reported as residue rather than guessed.
+        if (item.from) continue;
+        values.hiddenCases = [];
       } else if (API_FIELD[item.field]) {
         values[API_FIELD[item.field]] = item.from ?? null;
       } else {
@@ -724,8 +738,21 @@ export class DemoDriver {
     await sleep(220);
   }
 
+  /**
+   * The document's data context. Never hard-code a name: tutorial 1 is
+   * `mammals`, tutorial 2 is `nhanes`, the debug fixture is `Mammals`, and a
+   * script should not have to care which document it is running in.
+   */
+  async dataContextName() {
+    if (this._dataContext) return this._dataContext;
+    const list = (await this.api('get', 'dataContextList'))?.values ?? [];
+    this._dataContext = list[0]?.name ?? null;
+    return this._dataContext;
+  }
+
   async selectionCount(context) {
-    const dc = context ?? this._dataContext ?? 'Mammals';
+    const dc = context ?? await this.dataContextName();
+    if (!dc) return 0;
     const r = await this.api('get', `dataContext[${dc}].selectionList`);
     return r?.success ? (r.values ?? []).length : 0;
   }
@@ -882,7 +909,9 @@ export class DemoDriver {
 
       case 'marquee': {
         const t = await this._resolve(step.target);
-        const r = t.el.getBoundingClientRect();
+        // a resolver may hand back a NAMED SUB-REGION (plotQuad) rather than
+        // the whole element — "a subset of the points", not all of them
+        const r = t.rect ?? t.el.getBoundingClientRect();
         const a = this._toHost({ x: r.left + 6, y: r.top + 6 });
         const b = this._toHost({ x: r.right - 6, y: r.bottom - 6 });
         await this.goTo(a, { sec: 0.7 });
@@ -937,8 +966,8 @@ export class DemoDriver {
       }
 
       case 'clearSelection': {
-        const dc = this._dataContext ?? 'Mammals';
-        await this.api('create', `dataContext[${dc}].selectionList`, []);
+        const dc = await this.dataContextName();
+        if (dc) await this.api('create', `dataContext[${dc}].selectionList`, []);
         await sleep(300);
         return;
       }

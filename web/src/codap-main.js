@@ -19,7 +19,10 @@ import { ShowMeBridge } from './demo/showme-bridge.js';
 // (`examples:` only resolves against CODAP's own registry and cannot reach
 // our copies.) Set before the bridge is constructed so it binds the right src.
 const TUTORIAL = new URLSearchParams(location.search).get('tutorial');
-const TUTORIAL_DOCS = { 1: '/tutorial-docs/get_started_dot.codap' };
+const TUTORIAL_DOCS = {
+  1: '/tutorial-docs/get_started_dot.codap',
+  2: '/tutorial-docs/get_started_2_dot.codap',
+};
 {
   const el = document.getElementById('codap');
   // codap.html is the cross-origin page and names its own CODAP; the
