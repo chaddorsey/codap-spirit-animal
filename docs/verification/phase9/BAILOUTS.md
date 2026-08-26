@@ -125,7 +125,15 @@ student progress and the CODAP team should hear about it.
 
 ---
 
-## 3. `MakeScatterplot` straddles the 60 s wall-clock cap — shipping with its MP4
+## 3. `MakeScatterplot` straddles the 60 s wall-clock cap — RESOLVED
+
+> **RESOLVED 2026-08-26.** Chad chose to raise the cap to 120 s (the second of
+> the three options below). `MakeScatterplot` now runs green **5 of 5** at
+> 78.2-85.4 s with an empty revert, and all six scatterplot-set scripts pass.
+> Raising the cap also exposed a revert bug that had been hidden by the demo
+> never finishing — it left its own graph in the student's document. Both the
+> fix and the final numbers are in `MAKESCATTERPLOT-ISSUE.md`. The rest of this
+> entry is kept as the record of what was measured while it was blocked.
 
 **Recorded 2026-08-26 after well more than three full attempts, per the
 bail-out rule ("a Done-when item still failing after 3 full attempts").**

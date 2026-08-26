@@ -1,6 +1,11 @@
 # Known issue: `MakeScatterplot` exceeds the demo wall-clock cap
 
-Status: open. Blocks the sixth script of the P4 shared scatterplot set.
+Status: RESOLVED 2026-08-26 by raising the cap to 120s (Chad's decision).
+`MakeScatterplot` now runs green 5 of 5 at 78.2-85.4s with an empty revert.
+Kept for the measurements and for the revert bug the fix exposed — see
+"What raising the cap exposed" at the end.
+
+Originally: open, blocking the sixth script of the P4 shared scatterplot set.
 Recorded 2026-08-26. Measurements taken on CODAP v3.1.0 (build 2985) through
 the same-origin proxy on `codap-same.html?tutorial=2`.
 
@@ -124,3 +129,54 @@ own choreography accounts for about 12 seconds; the remainder is CODAP.
 - `BAILOUTS.md` #3 — the bail-out record, with per-attempt measurements.
 - `P4-NOTES.md` — the full P4 tally and the five passing scripts.
 - `docs/PHASE9-SHOWME.md` — the governing work order and the cap decision.
+
+## What raising the cap exposed
+
+Letting the demo finish for the first time surfaced a second, more serious bug
+that the 60-second cap had been hiding: the demo completed and its **revert
+left its own graph in the student's document** (`clicks 1, residue 1, graphs
+before 0 / after 1`).
+
+Revert measured progress on the diff's own-key signature. `diff()` emits a
+single `added` entry for a component that was not in the base and never
+compares that component's fields, so "create a graph, put `Age` on x, put
+`Height` on y" is **one** diff entry. Undoing the y attribute left that entry
+byte-identical, the stall check read it as "nothing of ours changed", and
+revert stopped after one click when it needed three. Probing the Undo button
+directly confirmed the button was fine: click 1 undid y, click 2 removed the
+graph.
+
+Three fixes, in `demo-driver.js`:
+
+1. Measure revert progress against a signature of the **document** (`snapSig`),
+   not against the diff.
+2. Wait for each undo to actually land (poll to 8 s) instead of assuming a
+   fixed 660 ms; CODAP applies an undo over several seconds.
+3. Treat every change on a component the demo **created** as ours
+   (`ownComponents`) — such a component cannot hold pre-existing student work.
+
+Only `MakeScatterplot` could hit this. It is the only script that creates a
+component and then changes it twice; `MakeGraph` creates one and stops, so a
+single undo emptied its diff and it reverted correctly. **The lesson for P5 is
+the same one P4 already recorded in a different form: the revert is only as
+good as what the snapshot and the diff can see.**
+
+## Final measurements at the 120s cap
+
+```
+MakeScatterplot   81.4 / 79.1 / 79.9 / 85.4 / 78.2 s   5 of 5 green, residue 0, 3 undo clicks
+SelectCases       19.2 s   residue 0
+HideUnselected    33.7 s   residue 0
+Deselect          51.5 s   residue 0
+Rescale           14.1 s   residue 0
+MakeLegend        41.0 s   residue 0
+```
+
+Document identical before and after the five-script pass: `graphs 1, x=Age,
+y=Height, legend null, hidden 0, onlySelected false`.
+
+One caveat worth keeping: an earlier series measured 2 of 3 green, and the
+failure was a 29.8 s tap followed by a 53.4 s drag. The 5-of-5 series above
+ran after closing two idle automation browser sessions (Chrome processes 62 ->
+34). **Machine load moves these numbers a lot**, which is the same confound
+that produced the original "it is variance" misdiagnosis.

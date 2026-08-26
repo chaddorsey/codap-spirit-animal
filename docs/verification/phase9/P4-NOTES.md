@@ -5,8 +5,15 @@ where the result is short of its criterion this says so plainly.
 
 ## Where P4's criteria stand
 
+> **UPDATED 2026-08-26 — now six of six.** Chad raised the wall-clock cap to
+> 120 s, `MakeScatterplot` runs green 5 of 5 at 78.2-85.4 s with residue 0, and
+> the other five re-verified green against a scatterplot fixture with the
+> document identical before and after. Engine selfTest 43/43. The table below
+> is the pre-decision state; see `MAKESCATTERPLOT-ISSUE.md` for the final
+> numbers and for the revert bug that raising the cap exposed.
+
 **"the six scripts run green against a family-B document/dataset"** — five of
-six on the final run, verified live on the nhanes dataset in the forked
+six BEFORE the cap decision, verified live on the nhanes dataset in the forked
 tutorial-2 document, every one with an empty revert diff:
 
 | script | result |
