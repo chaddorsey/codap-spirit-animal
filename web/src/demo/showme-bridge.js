@@ -103,12 +103,18 @@ export class ShowMeBridge {
     const tutorial = data.tutorial ?? this.plugins.get(src)?.tutorial ?? 1;
     if (!this.plugins.has(src)) this.plugins.set(src, { tutorial });
 
-    if (this.isBusy()) {
+    // `_inFlight` closes a race the driver's own state cannot: a second
+    // `dot-show-me` arriving while the FIRST is still loading its script sees
+    // an idle driver and no pending demo, so both reach the runner and the
+    // loser reports a spurious failure (and plays an MP4 over a demo that is
+    // about to start). One click can produce two messages, so this matters.
+    if (this._inFlight || this.isBusy()) {
       // NOT a dead click — the plugin re-enables the link and says so
       src.postMessage({ type: 'dot-demo-busy', key }, '*');
       this.log(`show-me ${key}: busy`);
       return;
     }
+    this._inFlight = key;
 
     this.onShowMe?.(tutorial, key);
     this.log(`show-me ${key}: starting`);
@@ -134,6 +140,7 @@ export class ShowMeBridge {
       return null;
     } finally {
       this._requested = null;
+      this._inFlight = null;
     }
   }
 
