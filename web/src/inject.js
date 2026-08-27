@@ -140,6 +140,33 @@ export class Injector {
   }
 
   /**
+   * Wait until CODAP's own drag preview has caught up with where we just said
+   * the pointer is.
+   *
+   * Frame-pacing was not enough: CODAP's drag work is queued async, not a
+   * blocked main thread, so requestAnimationFrame keeps firing at 60fps and
+   * paced nothing. Measured on a live drag — our dispatch finished in about a
+   * second while `.dnd-kit-drag-overlay` crawled from offset (0,0) to (-7,251)
+   * over roughly TEN seconds. That gap is the bug the student sees: the "Age"
+   * rectangle frozen at the pill while Dot is already at the graph.
+   *
+   * dnd-kit translates the overlay by exactly the pointer delta, so the
+   * expected position is its start rect plus (now - start). Waiting for that
+   * paces the drag to CODAP itself, at whatever speed it manages.
+   */
+  async _awaitPreview(sel, expected, { tolPx = 28, maxMs = 4000, pollMs = 40 } = {}) {
+    const t0 = performance.now();
+    for (;;) {
+      const el = this.doc.querySelector(sel);
+      if (!el) return 'absent';
+      const b = el.getBoundingClientRect();
+      if (Math.hypot(b.left - expected.x, b.top - expected.y) <= tolPx) return 'caught';
+      if (performance.now() - t0 > maxMs) return 'timeout';
+      await sleep(pollMs);
+    }
+  }
+
+  /**
    * Resolve on the frame's next RENDERED frame, or after `maxMs`.
    *
    * This is how an injected drag stays in step with CODAP. `setTimeout` does
@@ -290,7 +317,7 @@ export class Injector {
       steps = 14, stepMs = 40, bow = 0, holdMs = 90, settleMs = 140,
       onStep = null, upOn = 'document', moveTarget = 'document',
       events = 'both', useHandle = true, startAt = null,
-      paceByFrame = true,
+      paceByFrame = true, followSel = null, followTolPx = 28, followMaxMs = 4000,
     } = opts;
     const wantPointer = events !== 'mouse';
     const wantMouse = events !== 'pointer';
@@ -321,6 +348,7 @@ export class Injector {
     await sleep(holdMs);
 
     const moveNode = nodeFor(moveTarget);
+    let anchorRect = null, anchorAt = null;   // where the preview started
     for (let i = 1; i <= steps; i++) {
       this._checkAbort();
       const t = easeInOut(i / steps);
@@ -331,11 +359,21 @@ export class Injector {
       if (wantMouse) this._dispatch(moveNode, this._mouseEvent('mousemove', pt), pt);
       onStep?.(pt, i, steps);
       samples.push({ ...pt, phase: 'move' });
-      // Wait for a real frame as well as the nominal gap, so the next move is
-      // only sent once CODAP has had the chance to draw this one. Keeps the
-      // drag preview under the paw instead of frozen at the pill.
       if (paceByFrame) await Promise.all([sleep(stepMs), this._frame()]);
       else await sleep(stepMs);
+      // Then wait for CODAP's own preview to arrive before moving on, so the
+      // ghost stays under the paw rather than lagging seconds behind it.
+      if (followSel) {
+        const el = this.doc.querySelector(followSel);
+        if (el && !anchorRect) { anchorRect = el.getBoundingClientRect(); anchorAt = pt; }
+        if (el && anchorRect) {
+          const expected = { x: anchorRect.left + (pt.x - anchorAt.x),
+                             y: anchorRect.top + (pt.y - anchorAt.y) };
+          const how = await this._awaitPreview(followSel, expected,
+            { tolPx: followTolPx, maxMs: followMaxMs });
+          this._record(`follow:${how}`, pt, followSel);
+        }
+      }
     }
 
     await sleep(settleMs);
@@ -372,8 +410,15 @@ export class Injector {
    */
   async dragAttribute(from, to, opts = {}) {
     return this.dragPointer(from, to, {
-      steps: 8, stepMs: 60, useHandle: true,
-      moveTarget: 'document', upOn: 'document', ...opts,
+      // FEWER steps now that each one waits for CODAP's preview to catch up.
+      // Every sample costs a full preview round trip (~9s on a loaded machine,
+      // measured), and dnd-kit decides the drop from the dragged item's rect at
+      // release, not from how finely the path was sampled. Five is enough to
+      // read as a deliberate carry and to clear dnd-kit's activation distance.
+      steps: 5, stepMs: 60, useHandle: true,
+      moveTarget: 'document', upOn: 'document',
+      followSel: '.dnd-kit-drag-overlay',      // pace to CODAP's own preview
+      ...opts,
     });
   }
 
