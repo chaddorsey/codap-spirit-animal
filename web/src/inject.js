@@ -154,6 +154,26 @@ export class Injector {
    * expected position is its start rect plus (now - start). Waiting for that
    * paces the drag to CODAP itself, at whatever speed it manages.
    */
+  /**
+   * Wait for CODAP to CREATE its drag preview.
+   *
+   * Without this the pacing silently does nothing: dnd-kit only builds
+   * `.dnd-kit-drag-overlay` once the drag activates, and when CODAP is stalled
+   * that takes seconds — so every querySelector during our five quick steps
+   * returned null, no step ever waited, and the drag finished in under a
+   * second with the ghost still frozen at the pill. Reported live by Chad
+   * after the previous fix appeared to change nothing.
+   */
+  async _awaitPreviewEl(sel, { maxMs = 8000, pollMs = 50 } = {}) {
+    const t0 = performance.now();
+    for (;;) {
+      const el = this.doc.querySelector(sel);
+      if (el) return el;
+      if (performance.now() - t0 > maxMs) return null;
+      await sleep(pollMs);
+    }
+  }
+
   async _awaitPreview(sel, expected, { tolPx = 28, maxMs = 4000, pollMs = 40 } = {}) {
     const t0 = performance.now();
     for (;;) {
@@ -349,6 +369,7 @@ export class Injector {
 
     const moveNode = nodeFor(moveTarget);
     let anchorRect = null, anchorAt = null;   // where the preview started
+    let previewGaveUp = false;                // stop re-waiting if it never shows
     for (let i = 1; i <= steps; i++) {
       this._checkAbort();
       const t = easeInOut(i / steps);
@@ -364,7 +385,13 @@ export class Injector {
       // Then wait for CODAP's own preview to arrive before moving on, so the
       // ghost stays under the paw rather than lagging seconds behind it.
       if (followSel) {
-        const el = this.doc.querySelector(followSel);
+        // Wait for the preview to EXIST before pacing to it — see
+        // _awaitPreviewEl. Only on the first step that finds it.
+        let el = this.doc.querySelector(followSel);
+        if (!el && !anchorRect && !previewGaveUp) {
+          el = await this._awaitPreviewEl(followSel);
+          if (!el) { previewGaveUp = true; this._record('follow:never-appeared', pt, followSel); }
+        }
         if (el && !anchorRect) { anchorRect = el.getBoundingClientRect(); anchorAt = pt; }
         if (el && anchorRect) {
           const expected = { x: anchorRect.left + (pt.x - anchorAt.x),
@@ -416,6 +443,14 @@ export class Injector {
       // release, not from how finely the path was sampled. Five is enough to
       // read as a deliberate carry and to clear dnd-kit's activation distance.
       steps: 5, stepMs: 60, useHandle: true,
+      // PRESS AND HOLD before moving. Chad's reading of the interaction, and
+      // it matches everything else: CODAP wants click-hold-drag, and a 90ms
+      // hold is not a press. Move too soon and dnd-kit has not activated, so
+      // there is no `.dnd-kit-drag-overlay` to pace against, our samples go out
+      // against a drag that does not exist yet, and the ghost turns up late and
+      // frozen at the pill. It also reads better: she takes hold of the thing
+      // before carrying it.
+      holdMs: 650,
       moveTarget: 'document', upOn: 'document',
       followSel: '.dnd-kit-drag-overlay',      // pace to CODAP's own preview
       ...opts,
