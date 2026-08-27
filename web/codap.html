@@ -8,14 +8,14 @@
     #codap { position: fixed; inset: 0; width: 100vw; height: 100vh; border: none; }
     #stage { position: fixed; inset: 0; width: 100vw; height: 100vh;
       pointer-events: none; z-index: 50; }
-    #panel { position: fixed; top: 8px; right: 8px; width: 320px; z-index: 100;
+    #panel[hidden] { display: none; }
+    #panel { position: fixed; top: 68px; right: 8px; width: 320px; z-index: 100;
       background: #fffffff2; border: 1px solid #d5dae0; border-radius: 10px;
       box-shadow: 0 2px 10px #0003; font-size: 12px;
-      display: flex; flex-direction: column; max-height: calc(100vh - 16px); }
+      display: flex; flex-direction: column; max-height: calc(100vh - 76px); }
     #panel header { padding: 8px 12px; font-weight: 600; cursor: pointer; user-select: none;
       flex: none; }
     #panel .body { padding: 0 12px 10px; overflow-y: auto; overscroll-behavior: contain; }
-    #panel.collapsed .body { display: none; }
     #panel details.sec { border-top: 1px solid #e8ebef; }
     #panel details.sec > summary { font-size: 10px; text-transform: uppercase;
       letter-spacing: .06em; color: #667; padding: 7px 0 5px; cursor: pointer;
@@ -40,8 +40,9 @@
   <iframe id="codap" data-codap-src="https://codap3.concord.org/?embeddedServer=yes"></iframe>
   <canvas id="stage"></canvas>
 
-  <div id="panel">
-    <header id="panelToggle">🌸 Spirit Animal bridge — <span id="conn">connecting…</span></header>
+  <!-- Starts hidden; the Dot badge that codap-main.js installs opens it. -->
+  <div id="panel" hidden>
+    <header id="panelToggle">🌸 Dot's Dashboard — <span id="conn">connecting…</span></header>
     <div class="body">
       <details class="sec" data-sec="components" open>
         <summary>Components (click to visit)</summary>

@@ -3,3 +3,7 @@ node_modules/
 dist/
 *.blend1
 .DS_Store
+
+# wrangler local state (pages dev cache)
+web/.wrangler/
+web/dist/

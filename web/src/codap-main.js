@@ -11,6 +11,7 @@ import { DemoDriver } from './demo/demo-driver.js';
 import { installTracer } from './demo/trace-input.js';
 import { installRecorder } from './demo/record-drag.js';
 import { installDragDomWatcher } from './demo/watch-drag-dom.js';
+import { installDashboardBadge } from './ui/dot-badge.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
@@ -68,7 +69,14 @@ window.__axo = axo; window.__bridge = bridge; window.__engine = engine; // debug
 const whisker = new Whisker(axo, (x, y) => engine.simulate('mouse:near', { x, y }));
 window.__whisker = whisker;
 
-$('#panelToggle').onclick = () => $('#panel').classList.toggle('collapsed');
+// Dot's Dashboard collapses to her head, parked in CODAP's toolbar just left of
+// Help. It starts closed: the Dashboard is a developer affordance and the demo
+// is the point of the page, so the default view is CODAP with Dot in it and
+// nothing else. The panel's own header still toggles it, for anyone who has it
+// open already.
+const dashBadge = installDashboardBadge($('#panel'),
+  { frame: document.getElementById('codap') });
+$('#panelToggle').onclick = () => dashBadge.toggle();
 $('#behaviors').onclick = (e) => {
   engine.enabled = !engine.enabled;
   e.currentTarget.innerHTML = `behaviors: <b>${engine.enabled ? 'on' : 'off'}</b>`;
@@ -119,6 +127,7 @@ $('#refresh').onclick = refreshComponents;
 bridge.addEventListener('connected', () => {
   $('#conn').textContent = 'connected';
   $('#conn').classList.add('ok');
+  dashBadge.setConnected(true);      // badge goes solid — see ui/dot-badge.js
   logLine('CODAP present — phone connected', '#0b7285');
   axo.emote('!');
   axo.play('wave');
