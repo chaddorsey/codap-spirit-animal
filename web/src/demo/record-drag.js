@@ -129,12 +129,41 @@ class DragRecorder {
     };
   }
 
-  /** First N events of a take, for reading the actual shape of the sequence. */
+  /**
+   * First N events of a take as PLAIN TEXT.
+   *
+   * Returning objects was useless: the console collapses them to {…} and they
+   * cannot be copied out. One line per event, copy-pasteable.
+   */
   head(label, n = 25) {
     const rows = this.takes[label] ?? [];
+    const txt = rows.slice(0, n).map((r) => [
+      String(r.t).padStart(7),
+      r.real ? 'REAL' : 'ours',
+      r.type.padEnd(13),
+      `(${r.x},${r.y})`.padEnd(12),
+      `btn=${r.buttons}`.padEnd(7),
+      `id=${r.id ?? '-'}`.padEnd(12),
+      r.ghost ? `ghost@${r.ghost.x},${r.ghost.y}` : 'no-ghost',
+      r.target,
+    ].join(' ')).join('\n');
     // eslint-disable-next-line no-console
-    console.log(`[dotRecord] head("${label}")`, rows.slice(0, n));
-    return rows.slice(0, n);
+    console.log(`[dotRecord] head("${label}") ${rows.length} total\n` + txt);
+    return txt;
+  }
+
+  /** OUR dispatch log — what the injector believes it did, as text. */
+  injLog(n = 60) {
+    const ev = window.__demo?.driver?.inj?.events ?? [];
+    const txt = ev.slice(-n).map((e) => [
+      String(Math.round(e.t)).padStart(9),
+      e.type.padEnd(24),
+      `(${e.x},${e.y})`.padEnd(12),
+      e.target ?? '',
+    ].join(' ')).join('\n');
+    // eslint-disable-next-line no-console
+    console.log(`[dotRecord] injLog last ${Math.min(n, ev.length)} of ${ev.length}\n` + txt);
+    return txt;
   }
 
   diff(a = 'manual', b = 'dot') {

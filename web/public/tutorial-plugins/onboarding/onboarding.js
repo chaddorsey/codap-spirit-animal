@@ -302,8 +302,11 @@ class TutorialView extends React.Component {
     // acceptance tests have to be able to read it.
     window.__dotTutorialView = this;
     if (window.DotShowMe) {
-      window.DotShowMe.onError = function (iKey, iMovieURL) {
-        window.console && console.log('[dot] demo failed for ' + iKey + ' — playing the movie');
+      window.DotShowMe.onError = function (iKey, iMovieURL, iReason) {
+        // DOT-FORK: say WHY. Diagnosing the attribute drag cost several rounds
+        // of asking Chad to fish the reason out of the console by hand.
+        window.console && console.log('[dot] demo failed for ' + iKey
+          + ' — playing the movie — REASON: ' + (iReason || 'not reported'));
         if (iMovieURL) this.playMovie(iMovieURL);
       }.bind(this);
       window.DotShowMe.onBusy = function (iKey) {

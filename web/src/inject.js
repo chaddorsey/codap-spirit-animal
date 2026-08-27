@@ -161,12 +161,16 @@ export class Injector {
   _releaseAt(pt, { nodeFor, upOn, wantPointer, wantMouse, startEl }) {
     try {
       const upNode = nodeFor(upOn);
+    // eslint-disable-next-line no-console
+    console.log('[dot-drag] releasing normally after', samples.length, 'samples');
       if (wantPointer) {
         this._dispatch(upNode, this._pointerEvent('pointerup', pt, { buttons: 0, pressure: 0 }), pt);
         this._dispatch(upNode, this._pointerEvent('pointercancel', pt, { buttons: 0, pressure: 0 }), pt);
       }
       if (wantMouse) this._dispatch(upNode, this._mouseEvent('mouseup', pt, { buttons: 0 }), pt);
       this._record('drag:emergency-release', pt, this._desc(startEl));
+      // eslint-disable-next-line no-console
+      console.log('[dot-drag] EMERGENCY RELEASE at', Math.round(pt.x), Math.round(pt.y));
     } catch { /* nothing more we can do */ }
   }
 
@@ -402,8 +406,12 @@ export class Injector {
       const nudge = { x: a.x + nudgePx, y: a.y + nudgePx };
       if (wantPointer) this._dispatch(nodeFor(moveTarget), this._pointerEvent('pointermove', nudge), nudge);
       if (wantMouse) this._dispatch(nodeFor(moveTarget), this._mouseEvent('mousemove', nudge), nudge);
+      const t0 = performance.now();
       const el = await this._awaitPreviewEl(awaitDragStartSel, { maxMs: awaitDragStartMs });
+      const waited = Math.round(performance.now() - t0);
       this._record(el ? 'drag:started' : 'drag:never-started', a, awaitDragStartSel);
+      // eslint-disable-next-line no-console
+      console.log(`[dot-drag] ${el ? 'started' : 'NEVER STARTED'} after ${waited}ms`);
     }
 
     const moveNode = nodeFor(moveTarget);

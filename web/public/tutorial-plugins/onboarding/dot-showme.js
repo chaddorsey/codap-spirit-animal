@@ -95,7 +95,7 @@
         api.demoInProgress = false;
         api.activeKey = null;
         // degrade to exactly today's behaviour: play the canned movie
-        if (api.onError) api.onError(data.key, pending[data.key]);
+        if (api.onError) api.onError(data.key, pending[data.key], data.error);
         delete pending[data.key];
         break;
       case 'dot-demo-busy':
