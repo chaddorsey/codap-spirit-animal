@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Explore CODAP with Dot</title>
+  <style>
+    :root {
+      --ink: #16323f;
+      --muted: #5b6f7a;
+      --teal: #0b7285;
+      --line: #d7e0e4;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(1200px 700px at 50% -10%, #e8f4f7 0%, #f7fafb 55%, #f4f7f8 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 40px 20px;
+    }
+    header { text-align: center; margin-bottom: 34px; }
+    .logos { display: flex; align-items: center; justify-content: center; gap: 18px; }
+    .logos img { height: 54px; width: auto; }
+    .logos .dot { width: 58px; height: 58px; color: var(--teal); }
+    .logos .plus { font-size: 26px; color: #9fb2bb; font-weight: 300; }
+    h1 { font-size: 30px; margin: 18px 0 6px; letter-spacing: -.015em; }
+    .tagline { margin: 0; color: var(--muted); font-size: 15px; max-width: 46ch; }
+
+    .cards { display: grid; gap: 16px; width: 100%; max-width: 940px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    a.card {
+      display: flex; flex-direction: column; text-decoration: none; color: inherit;
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 22px 22px 20px; box-shadow: 0 1px 2px #0f294010, 0 8px 24px #0f294008;
+      transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+    }
+    a.card:hover { transform: translateY(-3px); border-color: #b7ccd4;
+      box-shadow: 0 2px 4px #0f294014, 0 14px 34px #0f294014; }
+    a.card:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+    .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+      color: var(--teal); font-weight: 600; }
+    .card h2 { font-size: 18px; margin: 8px 0 6px; }
+    .card p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); flex: 1; }
+    .go { margin-top: 16px; font-size: 13px; font-weight: 600; color: var(--teal); }
+    .go::after { content: " →"; }
+
+    footer { margin-top: 34px; font-size: 12px; color: #8ea3ad; text-align: center;
+      max-width: 60ch; line-height: 1.6; }
+    footer code { font-size: 11px; background: #eef3f5; padding: 1px 5px; border-radius: 4px; }
+    @media (prefers-reduced-motion: reduce) { a.card { transition: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logos">
+      <!-- Relative, not rooted: this has to survive being served from a
+           GitHub Pages project subpath as well as from the dev server root. -->
+      <img src="tutorial-plugins/onboarding/resources/codap_logo.png" alt="CODAP">
+      <span class="plus" aria-hidden="true">+</span>
+      <span class="dot" id="dotMark" aria-label="Dot"></span>
+    </div>
+    <h1>Explore CODAP with Dot</h1>
+    <p class="tagline">
+      Dot is an axolotl who lives in your CODAP window. She notices what you are
+      doing, and when you get stuck she can show you how — for real, in the
+      actual app.
+    </p>
+  </header>
+
+  <main class="cards">
+    <a class="card" href="codap-same.html?tutorial=1">
+      <span class="eyebrow">Tutorial 1</span>
+      <h2>Getting started</h2>
+      <p>
+        Make your first graph. Drag data onto the workspace, build a graph, and
+        move things around. Ask Dot to show you any step.
+      </p>
+      <span class="go">Start tutorial 1</span>
+    </a>
+
+    <a class="card" href="codap-same.html?tutorial=2">
+      <span class="eyebrow">Tutorial 2</span>
+      <h2>Graphs and selections</h2>
+      <p>
+        Scatterplots, selecting cases, hiding what you do not need, and adding a
+        legend. Builds on tutorial 1.
+      </p>
+      <span class="go">Start tutorial 2</span>
+    </a>
+
+    <a class="card" href="codap-same.html">
+      <span class="eyebrow">Sandbox</span>
+      <h2>Dot Playground</h2>
+      <p>
+        Open CODAP with Dot along for the ride — no tutorial, no script. Bring
+        your own data and see what she makes of it.
+      </p>
+      <span class="go">Open the playground</span>
+    </a>
+  </main>
+
+  <footer>
+    Dot appears at the bottom right. Her dashboard lives behind the small
+    axolotl head in CODAP's toolbar, next to <code>Help</code>.
+  </footer>
+
+  <script type="module">
+    // `createDotMark`, not the raw SVG: it also injects the mark's stylesheet,
+    // which is what makes solid-vs-outline mean anything. One source of truth
+    // with the in-app badge, so the convention cannot drift between them.
+    import { createDotMark } from './src/ui/dot-badge.js';
+    const slot = document.getElementById('dotMark');
+    const { el, setConnected } = createDotMark({ size: 58, title: 'Dot' });
+    setConnected(true);          // on the landing page she is simply herself
+    el.classList.add('dot');
+    slot.replaceWith(el);
+  </script>
+</body>
+</html>
