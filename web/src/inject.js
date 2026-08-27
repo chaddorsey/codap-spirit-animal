@@ -354,6 +354,7 @@ export class Injector {
       onStep = null, upOn = 'document', moveTarget = 'document',
       events = 'both', useHandle = true, startAt = null,
       paceByFrame = true, followSel = null, followTolPx = 28, followMaxMs = 4000,
+      awaitDragStartSel = null, awaitDragStartMs = 12000, nudgePx = 8,
     } = opts;
     const wantPointer = events !== 'mouse';
     const wantMouse = events !== 'pointer';
@@ -382,6 +383,28 @@ export class Injector {
     onStep?.(a, 0, steps);
     samples.push({ ...a, phase: 'down' });
     await sleep(holdMs);
+
+    // WAIT FOR CODAP TO ACTUALLY START THE DRAG before carrying anything.
+    //
+    // dnd-kit attaches its move listeners when it handles the pointerdown, and
+    // CODAP handles that asynchronously — seconds late under load. Everything
+    // dispatched before then lands on a document with no drag listeners on it
+    // and is simply lost. That is why Chad saw "the Age ghost card only appears
+    // once the scripting ends, and is connected to my cursor at that point":
+    // by the time dnd-kit was listening, our moves and our release were history
+    // and the only pointer still producing events was his.
+    //
+    // His recording of a WORKING drag shows the shape: 1009ms between press and
+    // first move, ghost visible at 4.4s. A human waits this out without
+    // noticing. We have to do it deliberately — nudge past the activation
+    // distance, then wait for the overlay to exist before carrying on.
+    if (awaitDragStartSel) {
+      const nudge = { x: a.x + nudgePx, y: a.y + nudgePx };
+      if (wantPointer) this._dispatch(nodeFor(moveTarget), this._pointerEvent('pointermove', nudge), nudge);
+      if (wantMouse) this._dispatch(nodeFor(moveTarget), this._mouseEvent('mousemove', nudge), nudge);
+      const el = await this._awaitPreviewEl(awaitDragStartSel, { maxMs: awaitDragStartMs });
+      this._record(el ? 'drag:started' : 'drag:never-started', a, awaitDragStartSel);
+    }
 
     const moveNode = nodeFor(moveTarget);
     let anchorRect = null, anchorAt = null;   // where the preview started
@@ -477,6 +500,8 @@ export class Injector {
       // expensive (72.9s for one drag); it is off.
       steps: 40, stepMs: 12, useHandle: true,
       paceByFrame: false, followSel: null,
+      // Wait for dnd-kit to be listening before carrying — see dragPointer.
+      awaitDragStartSel: '.dnd-kit-drag-overlay',
       // Hold stays modest: Chad can do this drag FAST by hand and it works, so
       // duration is not what CODAP is reacting to. 650ms was tried and ruled
       // out. The difference must be in the SHAPE of the event stream.
