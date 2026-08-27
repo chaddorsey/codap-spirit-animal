@@ -139,6 +139,22 @@ export class Injector {
     });
   }
 
+  /**
+   * Re-send our own position after the STUDENT's mouse has moved mid-drag.
+   *
+   * Blocking their events cannot win: CODAP registered its listeners when the
+   * page loaded, and our shield registers at drag start, so at the same node
+   * and phase CODAP is always ahead of us in the queue. Traced live —
+   * 235 trusted moves reached `frameWindow` capture before the shield could
+   * stop them. So instead of trying to be first, be LAST: after their move
+   * lands, immediately restate where Dot's paw is. The drag snaps back.
+   */
+  reassert(pt) {
+    if (!pt) return;
+    this._dispatch(this.doc, this._pointerEvent('pointermove', pt), pt);
+    this._dispatch(this.doc, this._mouseEvent('mousemove', pt), pt);
+  }
+
   // ---------------------------------------------------------------- P1/P2
   /**
    * CODAP v3.1.0 needs TWO different click shapes, measured in P0:

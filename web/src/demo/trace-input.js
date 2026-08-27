@@ -111,8 +111,11 @@ class InputTracer {
       byNode[k] = (byNode[k] ?? 0) + 1;
     }
     const shieldRows = this.log.filter((r) => r.shield).length;
+    const shield = window.__demo?.driver?.shield;
     const out = {
       rows: this.log.length,
+      shieldBlocked: shield?.blocked ?? null,
+      shieldReasserts: shield?.reasserts ?? null,
       rowsWhileShieldUp: shieldRows,
       trustedLeaks: leaks.length,
       leaksByNode: byNode,
@@ -121,7 +124,9 @@ class InputTracer {
         ? 'SHIELD NEVER ENGAGED — it is not being switched on during the drag'
         : leaks.length === 0
           ? 'no trusted movement got through; the hijack uses another route'
-          : 'trusted movement reached the nodes listed in leaksByNode while the shield was up',
+          : 'trusted movement reached leaksByNode BEFORE the shield could stop it '
+            + '(this tracer registers earlier at the same node, so seeing rows here is '
+            + 'expected) — what matters is shieldReasserts > 0, which is what puts Dot back',
     };
     // eslint-disable-next-line no-console
     console.log('[dotTrace]', JSON.stringify(out, null, 2));

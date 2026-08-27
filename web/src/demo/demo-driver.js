@@ -83,16 +83,32 @@ const SHIELDED = ['pointermove', 'pointerrawupdate', 'mousemove',
                   'pointerover', 'pointerenter', 'dragover'];
 
 class InputShield {
-  constructor() { this.docs = []; this.on = false;
+  constructor() { this.docs = []; this.on = false; this.reassert = null;
+    this.blocked = 0; this.reasserts = 0; this._pending = false;
     this.handler = (e) => {
       if (!e.isTrusted || e.__dotDemo) return;     // ours, or already ours
       e.stopImmediatePropagation();
+      this.blocked += 1;
+      // Stopping is not enough on its own: CODAP's listeners were registered
+      // at page load and ours at drag start, so at the same node and phase it
+      // sees the student's move BEFORE we can stop it. Restate Dot's position
+      // right after, so the last word is hers. One per frame is plenty.
+      if (this.reassert && !this._pending) {
+        this._pending = true;
+        requestAnimationFrame(() => {
+          this._pending = false;
+          if (!this.on) return;
+          try { this.reassert(); this.reasserts += 1; } catch { /* noop */ }
+        });
+      }
     };
   }
 
-  start(docs) {
+  start(docs, reassert = null) {
     if (this.on) return;
     this.on = true;
+    this.reassert = reassert;
+    this.blocked = 0; this.reasserts = 0;
     this.docs = docs.filter(Boolean);
     for (const doc of this.docs) {
       for (const t of SHIELDED) doc.addEventListener(t, this.handler, true);
@@ -103,7 +119,7 @@ class InputShield {
     for (const doc of this.docs) {
       for (const t of SHIELDED) doc.removeEventListener(t, this.handler, true);
     }
-    this.docs = []; this.on = false;
+    this.docs = []; this.on = false; this.reassert = null; this._pending = false;
   }
 }
 
@@ -610,14 +626,16 @@ export class DemoDriver {
       // only covers document. Chad confirmed the shield was engaged (13 of 16
       // samples during a drag) while his mouse still stole the attribute, so
       // the leak is above document. Cover every node an event passes through.
-      this.shield.start([
-        window, document,
-        this.iframe?.contentWindow, this.iframe?.contentDocument,
-      ]);
+      this._lastInjPt = null;
+      this.shield.start(
+        [window, document, this.iframe?.contentWindow, this.iframe?.contentDocument],
+        () => this.inj.reassert(this._lastInjPt),
+      );
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         // few injected moves, for the reason in inject.dragAttribute
         steps: 8, stepMs: 70, settleMs: 320,
         onStep: (pt) => {
+          this._lastInjPt = pt;          // what the shield restates
           const h = this._toHost(pt);
           this.cursorPt = h;
           this.cursor.moveTo(h.x, h.y);
