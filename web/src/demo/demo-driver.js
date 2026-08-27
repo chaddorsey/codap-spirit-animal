@@ -984,7 +984,11 @@ export class DemoDriver {
     // is still rendering pays for that work inside its own wall-clock budget.
     await this._waitForIdle({ maxMs: 6000 });
 
-    const watch = new CancelWatch((why) => this.abort(why));
+    // debugNoCancel: for tracing only. Driving a demo from the console cancels
+    // it instantly — clicking back into the page IS a student pointerdown —
+    // so a console-run trace never reaches the drag it was meant to observe.
+    const watch = new CancelWatch(
+      (why) => { if (!this.debugNoCancel) this.abort(why); });
     const startedAt = performance.now();
     let reverted = null;
     let error = null;
