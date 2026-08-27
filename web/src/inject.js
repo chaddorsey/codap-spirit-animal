@@ -140,6 +140,26 @@ export class Injector {
   }
 
   /**
+   * Resolve on the frame's next RENDERED frame, or after `maxMs`.
+   *
+   * This is how an injected drag stays in step with CODAP. `setTimeout` does
+   * not: while CODAP blocks the main thread the timers just queue, then fire
+   * in a burst, so the whole drag is dispatched before CODAP has drawn
+   * anything. Reported live — the "Age" drag preview sits frozen at the pill
+   * while Dot is already at the graph, and the ghost only appears once CODAP
+   * catches up. A requestAnimationFrame cannot fire while the thread is
+   * blocked, so awaiting one paces us to CODAP's real throughput.
+   */
+  _frame({ maxMs = 2500 } = {}) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (how) => { if (!settled) { settled = true; resolve(how); } };
+      const t = setTimeout(() => done('timeout'), maxMs);
+      this.win.requestAnimationFrame(() => { clearTimeout(t); done('frame'); });
+    });
+  }
+
+  /**
    * Re-send our own position after the STUDENT's mouse has moved mid-drag.
    *
    * Blocking their events cannot win: CODAP registered its listeners when the
@@ -270,6 +290,7 @@ export class Injector {
       steps = 14, stepMs = 40, bow = 0, holdMs = 90, settleMs = 140,
       onStep = null, upOn = 'document', moveTarget = 'document',
       events = 'both', useHandle = true, startAt = null,
+      paceByFrame = true,
     } = opts;
     const wantPointer = events !== 'mouse';
     const wantMouse = events !== 'pointer';
@@ -310,10 +331,15 @@ export class Injector {
       if (wantMouse) this._dispatch(moveNode, this._mouseEvent('mousemove', pt), pt);
       onStep?.(pt, i, steps);
       samples.push({ ...pt, phase: 'move' });
-      await sleep(stepMs);
+      // Wait for a real frame as well as the nominal gap, so the next move is
+      // only sent once CODAP has had the chance to draw this one. Keeps the
+      // drag preview under the paw instead of frozen at the pill.
+      if (paceByFrame) await Promise.all([sleep(stepMs), this._frame()]);
+      else await sleep(stepMs);
     }
 
     await sleep(settleMs);
+    if (paceByFrame) await this._frame();     // draw the last position before release
     this._checkAbort();
     // P0 CORRECTION to the spike: for dnd-kit the release must be dispatched
     // on the iframe's **document**. `window` leaves the drop un-committed
