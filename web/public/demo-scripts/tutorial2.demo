@@ -1,12 +1,12 @@
 demo MakeScatterplot
   say !
   tap toolbar:graph
-  wait component:graph 8s
+  wait component:graph 30s
   beat 1.5
   drag pill:Age -> axisDrop:bottom teaching
-  wait graphX:Age 8s
+  wait graphX:Age 30s
   drag pill:Height -> axisDrop:left teaching
-  wait graphY:Height 8s
+  wait graphY:Height 30s
   beat 1.2
   revert
   say ?
@@ -15,7 +15,7 @@ demo SelectCases
   say !
   peer plotQuad:center
   marquee plotQuad:center
-  wait selection>=2 10s
+  wait selection>=2 20s
   beat 1.6
   revert
   say ?
@@ -23,7 +23,7 @@ demo SelectCases
 demo HideUnselected
   say !
   marquee plotQuad:center
-  wait selection>=2 10s
+  wait selection>=2 20s
   tap titleBar:graph
   openmenu inspector:graph:hideShow
   choose menu:hideShow:1
@@ -34,7 +34,7 @@ demo HideUnselected
 demo Deselect
   say !
   marquee plotQuad:center
-  wait selection>=2 10s
+  wait selection>=2 20s
   beat 1.2
   tap plotQuad:tl
   beat 1.4
@@ -54,7 +54,7 @@ demo MakeLegend
   say !
   peer pill:Sex
   drag pill:Sex -> legendDrop teaching
-  wait graphLegend:Sex 12s
+  wait graphLegend:Sex 30s
   beat 1.6
   revert
   say ?

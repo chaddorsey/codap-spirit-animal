@@ -1,7 +1,7 @@
 demo Drag
   say !
   carrycsv workspace
-  wait component:caseTable 10s
+  wait component:caseTable 30s
   beat 1.6
   revert
   say ?
@@ -11,7 +11,7 @@ demo MakeGraph
   goto toolbar:graph
   peer toolbar:graph
   tap toolbar:graph
-  wait component:graph 8s
+  wait component:graph 30s
   beat 1.4
   revert
   say ?
@@ -20,7 +20,7 @@ demo MoveComponent
   say !
   peer titleBar:graph
   drag titleBar:graph -> workspace teaching
-  wait componentMoved 8s
+  wait componentMoved 30s
   beat 1.4
   revert
   say ?
@@ -29,7 +29,7 @@ demo AssignAttribute
   say !
   peer pill:Mass
   drag pill:Mass -> axisDrop:bottom teaching
-  wait graphX:Mass 8s
+  wait graphX:Mass 30s
   beat 1.6
   revert
   say ?
@@ -38,7 +38,7 @@ demo SecondAttribute
   say !
   peer pill:Sleep
   drag pill:Sleep -> axisDrop:left teaching
-  wait graphY:Sleep 8s
+  wait graphY:Sleep 30s
   beat 1.6
   revert
   say ?
