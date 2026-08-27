@@ -108,10 +108,31 @@ class InputShield {
    *  drag erases what the first one measured. */
   resetCounters() { this.blocked = 0; this.reasserts = 0; this.spans = []; }
 
-  start(docs, reassert = null) {
+  /**
+   * `frame` is the iframe ELEMENT in the host page. Setting `pointer-events:
+   * none` on it makes the browser stop hit-testing into CODAP altogether, so
+   * the student's mouse never generates events inside the frame in the first
+   * place. Injected events are unaffected: `dispatchEvent` on a node inside
+   * the frame does not go through hit-testing.
+   *
+   * This is the mechanism that actually works. Listener-order blocking cannot:
+   * CODAP registers at frameWindow capture when the page loads and we register
+   * at demo start, so it always sees a real move before we can stop it —
+   * measured, 3713 events blocked and the attribute still followed the cursor.
+   *
+   * Cancelling still works. With the frame transparent to pointer events, a
+   * click over CODAP lands on the HOST document, where CancelWatch is also
+   * listening.
+   */
+  start(docs, reassert = null, frame = null) {
     if (this.on) return;
     this.on = true;
     this.reassert = reassert;
+    this.frame = frame ?? null;
+    if (this.frame) {
+      this.framePE = this.frame.style.pointerEvents;
+      this.frame.style.pointerEvents = 'none';
+    }
     (this.spans ??= []).push({ from: Math.round(performance.now()), to: null });
     this.docs = docs.filter(Boolean);
     for (const doc of this.docs) {
@@ -125,6 +146,10 @@ class InputShield {
     }
     const span = this.spans?.[this.spans.length - 1];
     if (span && span.to == null) span.to = Math.round(performance.now());
+    if (this.frame) {
+      this.frame.style.pointerEvents = this.framePE ?? '';
+      this.frame = null;
+    }
     this.docs = []; this.on = false; this.reassert = null; this._pending = false;
   }
 }
@@ -998,6 +1023,7 @@ export class DemoDriver {
     this.shield.start(
       [window, document, this.iframe?.contentWindow, this.iframe?.contentDocument],
       () => { if (this._lastInjPt) this.inj.reassert(this._lastInjPt); },
+      this.iframe,
     );
     const watch = new CancelWatch(
       (why) => { if (!this.debugNoCancel) this.abort(why); });
