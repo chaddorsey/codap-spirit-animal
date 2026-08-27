@@ -38,10 +38,25 @@ presence is the visible proof that dnd-kit considers a drag to be in progress.
 
 ## 2. The conundrum, stated precisely
 
-**In direct-injection tests run from the console, the ghost card appears and the
-drag sometimes lands. In the real situation — clicking the "Show me." link and
-letting the full demo run on Chad's machine — the ghost card does not appear
-until the demo bails out, at which point it is attached to Chad's real cursor.**
+**The problem is the drag START and the drag itself — NOT the drop.** Chad, who
+owns this project and is the person observing the failure, is explicit about
+this and it should frame any investigation:
+
+> "The drop isn't the core issue -- it's the drag start and drag. My drags
+> always work. We need to figure out why Dot's don't when I'm present."
+
+Stated as a single question: **why does dnd-kit fail to begin a drag from Dot's
+synthetic `pointerdown` when a human is present at the machine, given that the
+same code begins a drag successfully in automated tests where no human is?**
+
+The visible form of the failure: in direct-injection tests run from the console,
+the ghost card appears promptly. In the real situation — clicking the "Show me."
+link and letting the full demo run on Chad's machine — the ghost card does not
+appear until the demo bails out, at which point it is attached to Chad's real
+cursor.
+
+A human's drag on the same page, in the same session, always works. Only the
+injected one fails, and it fails at the beginning rather than at the end.
 
 Chad's exact words, in order, across several runs:
 
@@ -221,11 +236,21 @@ full runner (Show me path)                       ghost at 76.8s, drag:started,
 
 ## 7. Open questions for a second opinion
 
-1. **Why does `.dnd-kit-drag-overlay` appear within 12s on the developer's
-   machine but not within 12s on Chad's, for the same code path?** This is the
-   conundrum Chad wants examined. Note the developer's machine is heavily
-   loaded (34–62 Chrome processes, load average 5–7) and is if anything
-   *slower*, which makes the direction of the difference counter-intuitive.
+1. **THE CENTRAL QUESTION. Why does dnd-kit not begin a drag from an injected
+   `pointerdown` when a human is at the machine?** `.dnd-kit-drag-overlay`
+   appears within 12s on the developer's machine and not within 12s on Chad's,
+   for the same code path. Note the developer's machine is heavily loaded
+   (34–62 Chrome processes, load average 5–7) and is if anything *slower*, which
+   makes the direction of the difference counter-intuitive — a slower machine
+   should be worse, not better.
+
+   Candidate mechanisms not yet excluded:
+   - a physical pointing device makes the browser hold an active pointer (id 1),
+     and a second "primary" synthetic pointer with a different id is rejected or
+     confused by dnd-kit's `PointerSensor`
+   - hover state on a real element changes what dnd-kit resolves against
+   - focus differs: clicking "Show me." focuses the plugin iframe, whereas an
+     automated run never moves focus
 
 2. **Is there a material difference between the direct-injection path and the
    full-runner path that has not been isolated?** Direct tests call
@@ -236,7 +261,8 @@ full runner (Show me path)                       ghost at 76.8s, drag:started,
    checkbox suppression. **This has not been A/B'd and is the most obvious
    untested variable.**
 
-3. **Does the injected `pointerId` matter?** `web/src/inject.js` uses a constant
+3. **Does the injected `pointerId` matter? — the strongest candidate for an
+   ACTIVATION failure, and directly coupled to question 1.** `web/src/inject.js` uses a constant
    synthetic id `20260825`. No pointer with that id exists, so any
    `setPointerCapture(event.pointerId)` inside dnd-kit or CODAP would throw
    `NotFoundError`. `gotpointercapture` / `lostpointercapture` are recorded by
@@ -250,7 +276,8 @@ full runner (Show me path)                       ghost at 76.8s, drag:started,
    Whether pausing that loop makes the ghost appear promptly was **not** tested
    — the experiment was prepared and then abandoned.
 
-5. **Why does the drop fail to commit even when the ghost appears?** Three of
+5. **Secondary, and explicitly NOT the core issue per Chad: why does the drop
+   fail to commit even when the ghost appears?** Three of
    four direct tests reached `drag:started` and still ended with
    `landed: null`. Nothing has yet inspected whether the axis droppable reaches
    dnd-kit's `over` state at the moment of `pointerup`. A previous finding in
