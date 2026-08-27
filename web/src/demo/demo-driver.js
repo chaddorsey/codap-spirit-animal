@@ -104,11 +104,15 @@ class InputShield {
     };
   }
 
+  /** Zeroed once per DEMO by the runner — not per drag, or a quiet second
+   *  drag erases what the first one measured. */
+  resetCounters() { this.blocked = 0; this.reasserts = 0; this.spans = []; }
+
   start(docs, reassert = null) {
     if (this.on) return;
     this.on = true;
     this.reassert = reassert;
-    this.blocked = 0; this.reasserts = 0;
+    (this.spans ??= []).push({ from: Math.round(performance.now()), to: null });
     this.docs = docs.filter(Boolean);
     for (const doc of this.docs) {
       for (const t of SHIELDED) doc.addEventListener(t, this.handler, true);
@@ -119,6 +123,8 @@ class InputShield {
     for (const doc of this.docs) {
       for (const t of SHIELDED) doc.removeEventListener(t, this.handler, true);
     }
+    const span = this.spans?.[this.spans.length - 1];
+    if (span && span.to == null) span.to = Math.round(performance.now());
     this.docs = []; this.on = false; this.reassert = null; this._pending = false;
   }
 }
@@ -987,6 +993,7 @@ export class DemoDriver {
     // debugNoCancel: for tracing only. Driving a demo from the console cancels
     // it instantly — clicking back into the page IS a student pointerdown —
     // so a console-run trace never reaches the drag it was meant to observe.
+    this.shield.resetCounters();
     const watch = new CancelWatch(
       (why) => { if (!this.debugNoCancel) this.abort(why); });
     const startedAt = performance.now();

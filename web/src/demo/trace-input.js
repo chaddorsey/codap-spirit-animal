@@ -112,14 +112,32 @@ class InputTracer {
     }
     const shieldRows = this.log.filter((r) => r.shield).length;
     const shield = window.__demo?.driver?.shield;
+    const spans = shield?.spans ?? [];
+    const inSpan = (t) => spans.some((s) => t >= s.from && t <= (s.to ?? Infinity));
+    // The question that matters: did genuine movement happen while a drag was
+    // actually being shielded? `r.shield` is only a live sample; the spans are
+    // the record, and they survive the drag ending.
+    const trustedMoves = this.log.filter((r) => r.trusted && MOVE_TYPES.includes(r.type));
+    const during = trustedMoves.filter((r) => inSpan(r.t));
     const out = {
       rows: this.log.length,
       shieldBlocked: shield?.blocked ?? null,
       shieldReasserts: shield?.reasserts ?? null,
+      shieldSpans: spans.map((s) => `${s.from}..${s.to ?? 'open'}`),
+      trustedMovesTotal: trustedMoves.length,
+      trustedMovesDuringDrag: during.length,
+      firstDuring: during.slice(0, 3),
       rowsWhileShieldUp: shieldRows,
       trustedLeaks: leaks.length,
       leaksByNode: byNode,
       firstLeaks: leaks.slice(0, 8),
+      diagnosis: during.length === 0
+        ? (trustedMoves.length === 0
+            ? 'YOU DID NOT MOVE THE MOUSE — no genuine movement recorded at all'
+            : 'you moved, but never while a drag was shielded; move DURING the drag')
+        : (shield?.blocked ? 'movement during a shielded drag, and the shield saw it'
+                           : 'MOVEMENT DURING A SHIELDED DRAG THAT THE SHIELD NEVER SAW '
+                             + '-- it is listening on the wrong node for this event'),
       verdict: shieldRows === 0
         ? 'SHIELD NEVER ENGAGED — it is not being switched on during the drag'
         : leaks.length === 0
