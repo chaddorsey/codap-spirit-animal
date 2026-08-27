@@ -637,7 +637,30 @@ export class DemoDriver {
 
   async dragAttribute(srcEl, dstElOrPoint, opts = {}) {
     this._checkAbort();
-    await this._waitForIdle();
+    // QUIESCE HARD BEFORE A DRAG — this is the largest controllable cost found
+    // so far, and the default gate was not a gate at all: `frameMs: 60, need: 3`
+    // accepts a page still producing 60 ms frames, which is nowhere near
+    // settled.
+    //
+    // Measured 2026-08-27, interleaved FRESH/SETTLED, four reps each, all eight
+    // landing. CARRY time — press to release:
+    //
+    //   FRESH   (graph created ~1.5 s earlier)  25744, 30451, 28086, 31337 ms
+    //   SETTLED (quiesced with the values below) 12826, 12686, 11982,  6615 ms
+    //
+    // The distributions do not overlap: every FRESH carry exceeds every SETTLED
+    // one. Nothing else measured this session separated that cleanly — between-
+    // session variance on this page runs to 13× for identical settings, which
+    // is why only interleaved comparisons are trusted here.
+    //
+    // `tutorial2.demo` is the FRESH case exactly: `tap toolbar:graph`, `beat
+    // 1.5`, then drag onto a graph a second and a half old. The quiesce costs
+    // roughly 4 s and saves roughly 18 s of carry.
+    //
+    // The 20 s / 20 ms / 10-frame gate and the 4 s settle were measured together
+    // as one recipe; treat them as a pair if you tune them.
+    await this._waitForIdle({ maxMs: 20000, frameMs: 20, need: 10 });
+    await sleep(4000);
     const sr = srcEl.getBoundingClientRect();
     const start = this._toHost({ x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 });
     await this.goTo(start, { sec: 0.8 });
@@ -651,6 +674,14 @@ export class DemoDriver {
     this.axo.lookAt(dst.x, dst.y);
     this.timelineActive = true;
     this.phase = 'drag';
+    // Experiment arm B (docs/EXPERIMENT-RENDER-STARVATION.md): raised here,
+    // after goTo() travel is done, so pausing the render never stalls travel.
+    // The drag window is marked in every arm, so frame gaps recorded during the
+    // drag can be separated from gaps that belong to travel or graph creation.
+    const perf = window.__dotPerf;
+    perf?.drags?.push([Math.round(performance.now()), null]);
+    const window0 = perf?.drags?.[perf.drags.length - 1];
+    if (perf?.liteDuringDrag) perf.lite = true;
     try {
       // window BEFORE document: capture order is window -> document -> target,
       // so a listener CODAP put on window would fire ahead of a shield that
@@ -658,11 +689,17 @@ export class DemoDriver {
       // samples during a drag) while his mouse still stole the attribute, so
       // the leak is above document. Cover every node an event passes through.
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
-        // Dense and fast, matching the RECORDED manual drag (384 moves, 1ms
-        // median gap). The old sparse 8-move stream was chosen when we thought
-        // each move cost CODAP dearly; the recording shows a real drag does the
-        // opposite and works fine.
-        steps: 40, stepMs: 12, settleMs: 320,
+        // SPARSE AGAIN, 2026-08-27. This override was raised to 40 moves in
+        // eca321a to match Chad's recorded manual drag (384 moves, 1 ms median
+        // gap) — but Chrome delivers real pointermoves one per animation frame
+        // with the rest in getCoalescedEvents(), so his 384 moves were ~384
+        // frames and cost dnd-kit one collision pass each. Ours are dispatched,
+        // never coalesced, and cost a full collision pass every time. Measured
+        // carry time, three reps each: 40 moves 5447 ms, 8 moves 2782 ms, and 8
+        // moves also far more predictable (2.0-2.9 s vs 3.4-11.8 s). The step
+        // count now comes from Injector.dragAttribute's default; see the long
+        // note there, including the paw-smoothness trade-off this takes on.
+        settleMs: 320,
         onStep: (pt) => {
           this._lastInjPt = pt;          // what the shield restates
           const h = this._toHost(pt);
@@ -672,6 +709,9 @@ export class DemoDriver {
         ...opts,
       });
     } finally {
+      if (perf?.liteDuringDrag) perf.lite = false;
+      if (window0) window0[1] = Math.round(performance.now());
+      if (perf) perf.reassertsAtDragEnd = this.shield.reasserts;
       this.timelineActive = false;
       this.phase = 'idle';
     }
@@ -1023,9 +1063,20 @@ export class DemoDriver {
     // at risk and left the thirty that were. So it runs for the whole demo.
     this.shield.resetCounters();
     this._lastInjPt = null;
+    // Experiment arm C (docs/EXPERIMENT-RENDER-STARVATION.md). Every trusted
+    // mouse move the shield blocks schedules a reassert, and a reassert
+    // dispatches a pointermove + mousemove INTO CODAP, where dnd-kit re-runs
+    // collision detection over every droppable — the cost this repo measured as
+    // badly super-linear (inject.js dragAttribute: 26 moves -> 40.7 s). No
+    // human at the machine means no trusted moves and therefore zero reasserts,
+    // so this is a load source that exists only when Chad is present. Arming
+    // __dotPerf.noReassert removes it without touching anything else.
+    const reassert = window.__dotPerf?.noReassert
+      ? null
+      : () => { if (this._lastInjPt) this.inj.reassert(this._lastInjPt); };
     this.shield.start(
       [window, document, this.iframe?.contentWindow, this.iframe?.contentDocument],
-      () => { if (this._lastInjPt) this.inj.reassert(this._lastInjPt); },
+      reassert,
       this.iframe,
     );
     const watch = new CancelWatch(
