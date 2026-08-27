@@ -166,7 +166,18 @@ class TutorialView extends React.Component {
     super(props);
 
     this.state = {
-      accomplished: [],
+      // DOT-FORK 9: the first task is done before the student arrives.
+      //
+      // Its data is imported for them at startup (see the note by the
+      // `dataContextFromURL` call) because CODAP v3.1.0 cannot complete a url
+      // drop, so the box has to start ticked or the tutorial would show a task
+      // nobody — student or Dot — can ever finish.
+      //
+      // Read from `descriptions[0]` rather than hard-coding 'Drag': the first
+      // task is 'Drag' with a mouse and 'MakeTable' without, and both are
+      // satisfied by the same import.
+      accomplished: (onboarding1 && taskDescriptions.descriptions.length)
+        ? [taskDescriptions.descriptions[0].key] : [],
       codapPresent: false,
       whichFeedback: 'welcome',
       movieURL: '',
@@ -565,7 +576,26 @@ function getStarted() {
     console.log(msg);
   });
 
-  if ((!hasMouse && onboarding1) || (!onboarding1)) {
+  // DOT-FORK 9: load the csv for tutorial 1 as well, not only on touch devices.
+  //
+  // The original condition says: tutorial 2 always imports; tutorial 1 imports
+  // only when there is no mouse, because a student with a mouse is supposed to
+  // drag the file icon in themselves. That task cannot be completed on CODAP
+  // v3.1.0 by anybody. Measured 2026-08-27 on STOCK codap3.concord.org, no
+  // proxy and no wrapper, dropping an https csv that serves
+  // `access-control-allow-origin: *`: CODAP routes the drop correctly and
+  // launches its Importer plugin, but the Importer's handshake with CODAP times
+  // out ("sendRequest on not yet initialized CODAP connection" ->
+  // "CODAP request timed out"), so it never receives the url and sits there
+  // prompting "Enter url:". No dataset ever arrives. Not our bug and not
+  // fixable from here.
+  //
+  // So treat a broken drop the way this file already treats a device that
+  // cannot drag: bring the data in and tick the task off. `getStarted` marks it
+  // accomplished, and the DOT-FORK 8/8 poll below opens the case table that v3
+  // does not open by itself. The student begins where the tutorial's
+  // demonstrable content begins.
+  if (true) {
     csvToLoad = (onboarding1 ? tr("~onboarding1.mammals.file.and.table.title") : tr("~onboarding2.nhanes.file.and.table.title"));
     var dataContextTitle = (onboarding1 ? tr("~onboarding1.mammals.table.title") : tr("~onboarding2.nhanes.table.title"));
     codapInterface.sendRequest({

@@ -293,6 +293,12 @@ export function parse(text) {
     const ln = i + 1;
     const line = raw.replace(/\s+$/, '');
     if (!line.trim()) return;                     // blank lines separate demos
+    // `#` comments. Added because the alternative is worse: the reason a demo
+    // is written a particular way — or deliberately ABSENT, as with tutorial 1's
+    // Drag task — then has to live somewhere else, and the next person to read
+    // the script does not find it. Comments are dropped by `toLines`, so a
+    // parse/serialise round trip loses them; author them in the .demo file.
+    if (line.trim().startsWith('#')) return;
     const indented = /^\s/.test(line);
     const tokens = line.trim().split(/\s+/);
     if (!indented) {

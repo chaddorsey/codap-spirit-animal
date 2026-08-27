@@ -1,10 +1,17 @@
-demo Drag
-  say !
-  carrycsv workspace
-  wait component:caseTable 30s
-  beat 1.6
-  revert
-  say ?
+# NO `demo Drag` HERE, DELIBERATELY.
+#
+# Tutorial 1's first task is "drag the file icon in", and CODAP v3.1.0 cannot
+# complete a url drop at all — measured on stock codap3.concord.org with no
+# proxy and no wrapper: the Importer plugin launches, its handshake with CODAP
+# times out, and no dataset ever arrives. So the plugin now imports the data at
+# startup and ticks that box before the student sees it (DOT-FORK 9 in
+# onboarding.js).
+#
+# With the task already done, a live demonstration would import a SECOND copy of
+# Mammals. Leaving the script out instead makes `__demo.run('tutorial1','Drag')`
+# fail to resolve, and the plugin falls back to the canned MP4 — which shows
+# what dragging a csv looks like without touching the document. That fallback is
+# the floor the fork was built on (DOT-FORK 5/5); this leans on it on purpose.
 
 demo MakeGraph
   say !
