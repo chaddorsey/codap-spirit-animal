@@ -443,14 +443,10 @@ export class Injector {
       // release, not from how finely the path was sampled. Five is enough to
       // read as a deliberate carry and to clear dnd-kit's activation distance.
       steps: 5, stepMs: 60, useHandle: true,
-      // PRESS AND HOLD before moving. Chad's reading of the interaction, and
-      // it matches everything else: CODAP wants click-hold-drag, and a 90ms
-      // hold is not a press. Move too soon and dnd-kit has not activated, so
-      // there is no `.dnd-kit-drag-overlay` to pace against, our samples go out
-      // against a drag that does not exist yet, and the ghost turns up late and
-      // frozen at the pill. It also reads better: she takes hold of the thing
-      // before carrying it.
-      holdMs: 650,
+      // Hold stays modest: Chad can do this drag FAST by hand and it works, so
+      // duration is not what CODAP is reacting to. 650ms was tried and ruled
+      // out. The difference must be in the SHAPE of the event stream.
+      holdMs: 180,
       moveTarget: 'document', upOn: 'document',
       followSel: '.dnd-kit-drag-overlay',      // pace to CODAP's own preview
       ...opts,

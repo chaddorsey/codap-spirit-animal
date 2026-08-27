@@ -9,6 +9,7 @@ import { preloadEmoteFont } from './emotes.js';
 import { Injector, sameOrigin } from './inject.js';
 import { DemoDriver } from './demo/demo-driver.js';
 import { installTracer } from './demo/trace-input.js';
+import { installRecorder } from './demo/record-drag.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
@@ -337,6 +338,7 @@ function setupDemo() {
 
   window.__demo = demo;
   installTracer();                 // window.__dotTrace — see trace-input.js
+  installRecorder();               // window.__dotRecord — see record-drag.js
   window.__inj = inj;
   logLine('same-origin CODAP — window.__demo available', '#1c63d6');
 }
