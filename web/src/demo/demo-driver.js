@@ -632,11 +632,6 @@ export class DemoDriver {
       // only covers document. Chad confirmed the shield was engaged (13 of 16
       // samples during a drag) while his mouse still stole the attribute, so
       // the leak is above document. Cover every node an event passes through.
-      this._lastInjPt = null;
-      this.shield.start(
-        [window, document, this.iframe?.contentWindow, this.iframe?.contentDocument],
-        () => this.inj.reassert(this._lastInjPt),
-      );
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         // few injected moves, for the reason in inject.dragAttribute
         steps: 8, stepMs: 70, settleMs: 320,
@@ -649,7 +644,6 @@ export class DemoDriver {
         ...opts,
       });
     } finally {
-      this.shield.stop();
       this.timelineActive = false;
       this.phase = 'idle';
     }
@@ -993,7 +987,18 @@ export class DemoDriver {
     // debugNoCancel: for tracing only. Driving a demo from the console cancels
     // it instantly — clicking back into the page IS a student pointerdown —
     // so a console-run trace never reaches the drag it was meant to observe.
+    // The shield must outlive the DISPATCH, not match it. Traced live: our
+    // injected drag finishes dispatching in ~982 ms, but the drag step costs
+    // 20-40 s because CODAP is still processing the drop long after our
+    // pointerup — and dnd-kit's drag session stays open through all of it.
+    // A shield scoped to the dispatch guarded the one second that was never
+    // at risk and left the thirty that were. So it runs for the whole demo.
     this.shield.resetCounters();
+    this._lastInjPt = null;
+    this.shield.start(
+      [window, document, this.iframe?.contentWindow, this.iframe?.contentDocument],
+      () => { if (this._lastInjPt) this.inj.reassert(this._lastInjPt); },
+    );
     const watch = new CancelWatch(
       (why) => { if (!this.debugNoCancel) this.abort(why); });
     const startedAt = performance.now();
@@ -1013,6 +1018,10 @@ export class DemoDriver {
         if (performance.now() - startedAt > CAPS.wallClockSec * 1000) {
           throw new Error(`demo exceeded ${CAPS.wallClockSec}s wall clock`);
         }
+        // Re-assert only makes sense while the last drag is still the thing
+        // CODAP is working on. Once a different step starts, the stored point
+        // is stale and restating it would fight the new action.
+        if (step.do !== 'drag') this._lastInjPt = null;
         const stepT0 = performance.now();
         await this._step(step);
         (this.stepTimings ??= []).push(
