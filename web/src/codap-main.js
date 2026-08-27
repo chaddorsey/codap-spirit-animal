@@ -8,6 +8,7 @@ import { analyzeDataset, suggestMoves } from './insight.js';
 import { preloadEmoteFont } from './emotes.js';
 import { Injector, sameOrigin } from './inject.js';
 import { DemoDriver } from './demo/demo-driver.js';
+import { installTracer } from './demo/trace-input.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
@@ -335,6 +336,7 @@ function setupDemo() {
   demo.showme = showme;
 
   window.__demo = demo;
+  installTracer();                 // window.__dotTrace — see trace-input.js
   window.__inj = inj;
   logLine('same-origin CODAP — window.__demo available', '#1c63d6');
 }

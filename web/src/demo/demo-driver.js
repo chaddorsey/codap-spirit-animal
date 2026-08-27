@@ -605,7 +605,15 @@ export class DemoDriver {
     this.timelineActive = true;
     this.phase = 'drag';
     try {
-      this.shield.start([document, this.iframe?.contentDocument]);
+      // window BEFORE document: capture order is window -> document -> target,
+      // so a listener CODAP put on window would fire ahead of a shield that
+      // only covers document. Chad confirmed the shield was engaged (13 of 16
+      // samples during a drag) while his mouse still stole the attribute, so
+      // the leak is above document. Cover every node an event passes through.
+      this.shield.start([
+        window, document,
+        this.iframe?.contentWindow, this.iframe?.contentDocument,
+      ]);
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         // few injected moves, for the reason in inject.dragAttribute
         steps: 8, stepMs: 70, settleMs: 320,
