@@ -155,6 +155,22 @@ export class Injector {
    * paces the drag to CODAP itself, at whatever speed it manages.
    */
   /**
+   * Emergency release. Used when a drag is abandoned part-way (abort, wall
+   * clock, thrown error) so CODAP is never left mid-drag.
+   */
+  _releaseAt(pt, { nodeFor, upOn, wantPointer, wantMouse, startEl }) {
+    try {
+      const upNode = nodeFor(upOn);
+      if (wantPointer) {
+        this._dispatch(upNode, this._pointerEvent('pointerup', pt, { buttons: 0, pressure: 0 }), pt);
+        this._dispatch(upNode, this._pointerEvent('pointercancel', pt, { buttons: 0, pressure: 0 }), pt);
+      }
+      if (wantMouse) this._dispatch(upNode, this._mouseEvent('mouseup', pt, { buttons: 0 }), pt);
+      this._record('drag:emergency-release', pt, this._desc(startEl));
+    } catch { /* nothing more we can do */ }
+  }
+
+  /**
    * Wait for CODAP to CREATE its drag preview.
    *
    * Without this the pacing silently does nothing: dnd-kit only builds
@@ -370,6 +386,8 @@ export class Injector {
     const moveNode = nodeFor(moveTarget);
     let anchorRect = null, anchorAt = null;   // where the preview started
     let previewGaveUp = false;                // stop re-waiting if it never shows
+    let lastPt = a;                           // where to release if we bail out
+    try {
     for (let i = 1; i <= steps; i++) {
       this._checkAbort();
       const t = easeInOut(i / steps);
@@ -379,6 +397,7 @@ export class Injector {
       if (wantPointer) this._dispatch(moveNode, this._pointerEvent('pointermove', pt), pt);
       if (wantMouse) this._dispatch(moveNode, this._mouseEvent('mousemove', pt), pt);
       onStep?.(pt, i, steps);
+      lastPt = pt;
       samples.push({ ...pt, phase: 'move' });
       if (paceByFrame) await Promise.all([sleep(stepMs), this._frame()]);
       else await sleep(stepMs);
@@ -403,9 +422,23 @@ export class Injector {
       }
     }
 
+    } catch (err) {
+      // NEVER leave the pointer down. Measured against a real drag: an aborted
+      // injected drag emitted pointerdown and 22 moves and NO pointerup at all,
+      // which leaves CODAP in an open drag session with the ghost stranded —
+      // and an open session follows the next real mouse it sees. That is the
+      // "the attribute jumps to my cursor and sticks" bug, and it was ours.
+      this._releaseAt(lastPt, { nodeFor, upOn, wantPointer, wantMouse, startEl });
+      throw err;
+    }
+
     await sleep(settleMs);
     if (paceByFrame) await this._frame();     // draw the last position before release
-    this._checkAbort();
+    try { this._checkAbort(); }
+    catch (err) {
+      this._releaseAt(lastPt, { nodeFor, upOn, wantPointer, wantMouse, startEl });
+      throw err;
+    }
     // P0 CORRECTION to the spike: for dnd-kit the release must be dispatched
     // on the iframe's **document**. `window` leaves the drop un-committed
     // (the zone shows `over`, the attribute never lands) — measured
@@ -437,18 +470,18 @@ export class Injector {
    */
   async dragAttribute(from, to, opts = {}) {
     return this.dragPointer(from, to, {
-      // FEWER steps now that each one waits for CODAP's preview to catch up.
-      // Every sample costs a full preview round trip (~9s on a loaded machine,
-      // measured), and dnd-kit decides the drop from the dragged item's rect at
-      // release, not from how finely the path was sampled. Five is enough to
-      // read as a deliberate carry and to clear dnd-kit's activation distance.
-      steps: 5, stepMs: 60, useHandle: true,
+      // Shaped like Chad's RECORDED successful drag: 384 pointermoves with a
+      // 1ms median gap, and the ghost not appearing until 4.4s in — so CODAP is
+      // perfectly happy with a fast dense stream, and the late ghost is normal
+      // rather than a symptom. Pacing to the preview was therefore wrong AND
+      // expensive (72.9s for one drag); it is off.
+      steps: 40, stepMs: 12, useHandle: true,
+      paceByFrame: false, followSel: null,
       // Hold stays modest: Chad can do this drag FAST by hand and it works, so
       // duration is not what CODAP is reacting to. 650ms was tried and ruled
       // out. The difference must be in the SHAPE of the event stream.
       holdMs: 180,
       moveTarget: 'document', upOn: 'document',
-      followSel: '.dnd-kit-drag-overlay',      // pace to CODAP's own preview
       ...opts,
     });
   }

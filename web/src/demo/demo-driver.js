@@ -658,8 +658,11 @@ export class DemoDriver {
       // samples during a drag) while his mouse still stole the attribute, so
       // the leak is above document. Cover every node an event passes through.
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
-        // few injected moves, for the reason in inject.dragAttribute
-        steps: 8, stepMs: 70, settleMs: 320,
+        // Dense and fast, matching the RECORDED manual drag (384 moves, 1ms
+        // median gap). The old sparse 8-move stream was chosen when we thought
+        // each move cost CODAP dearly; the recording shows a real drag does the
+        // opposite and works fine.
+        steps: 40, stepMs: 12, settleMs: 320,
         onStep: (pt) => {
           this._lastInjPt = pt;          // what the shield restates
           const h = this._toHost(pt);
