@@ -64,6 +64,49 @@ export const CAPS = {
  * or the debug button) is itself a trusted pointerdown, and without a grace
  * it would cancel the demo it just started.
  */
+/**
+ * Keeps the STUDENT's real mouse out of an injected drag.
+ *
+ * dnd-kit, d3-drag and PixiJS all track a drag by listening for movement on
+ * the document rather than by pointer identity, so a real mouse that merely
+ * wavers while Dot is dragging feeds the same drag session she started — the
+ * dragged attribute jumps to the student's cursor and sticks there (reported
+ * live by Chad, 2026-08-26). Our own injected events are untrusted, so they
+ * pass straight through; only genuine input is held back, and only while a
+ * drag is actually in flight.
+ *
+ * Deliberately NOT blocked: `pointerdown` and `keydown`. Those are how the
+ * student cancels a demo (CancelWatch), and a demo the student cannot
+ * interrupt is worse than one their mouse can disturb.
+ */
+const SHIELDED = ['pointermove', 'pointerrawupdate', 'mousemove',
+                  'pointerover', 'pointerenter', 'dragover'];
+
+class InputShield {
+  constructor() { this.docs = []; this.on = false;
+    this.handler = (e) => {
+      if (!e.isTrusted || e.__dotDemo) return;     // ours, or already ours
+      e.stopImmediatePropagation();
+    };
+  }
+
+  start(docs) {
+    if (this.on) return;
+    this.on = true;
+    this.docs = docs.filter(Boolean);
+    for (const doc of this.docs) {
+      for (const t of SHIELDED) doc.addEventListener(t, this.handler, true);
+    }
+  }
+
+  stop() {
+    for (const doc of this.docs) {
+      for (const t of SHIELDED) doc.removeEventListener(t, this.handler, true);
+    }
+    this.docs = []; this.on = false;
+  }
+}
+
 class CancelWatch {
   constructor(onCancel, { graceMs = 500 } = {}) {
     this.onCancel = onCancel;
@@ -135,6 +178,7 @@ export class DemoDriver {
     this.iframe = iframe;
     this.log = log;
     this.cursor = new DemoCursor(stage);
+    this.shield = new InputShield();
     this.cursorPt = null;      // THE sample: sprite, Dot and injection share it
     this.side = 'L';
     this.active = false;
@@ -402,6 +446,7 @@ export class DemoDriver {
     this.axo.clearGaze();
     this.axo.targetFacing = 0;
     this.axo.setBase('idle');
+    this.shield.stop();          // belt and braces: never outlive the demo
     this.active = false;
     this.cursorPt = null;
   }
@@ -560,6 +605,7 @@ export class DemoDriver {
     this.timelineActive = true;
     this.phase = 'drag';
     try {
+      this.shield.start([document, this.iframe?.contentDocument]);
       return await this.inj.dragAttribute(srcEl, dstElOrPoint, {
         // few injected moves, for the reason in inject.dragAttribute
         steps: 8, stepMs: 70, settleMs: 320,
@@ -571,6 +617,7 @@ export class DemoDriver {
         ...opts,
       });
     } finally {
+      this.shield.stop();
       this.timelineActive = false;
       this.phase = 'idle';
     }
