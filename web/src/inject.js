@@ -86,14 +86,55 @@ export class Injector {
   constructor(win, opts = {}) {
     if (!win || !win.document) throw new TypeError('inject: need a same-origin window');
     this.win = win;
-    this.doc = win.document;
+    // `doc` is a LIVE GETTER, never a snapshot — see the note on the getter.
     this.isAborted = opts.isAborted ?? (() => false);
     this.onEvent = opts.onEvent ?? null;
+    this._docSnapshotAtBuild = win.document;   // diagnostics only, see `staleDoc`
     // One pointerId for the process lifetime: dnd-kit and PixiJS both track
     // drags by id, and a changing id mid-drag drops the stream.
+    // RUNTIME-TWEAKABLE ON PURPOSE: `__demo.driver.inj.pointerId = 1` before a
+    // demo tests conundrum-doc §7 Q3 in one line. No pointer with id 20260825
+    // exists, so any `setPointerCapture(event.pointerId)` inside CODAP throws
+    // NotFoundError — silently, because dispatchEvent swallows what listeners
+    // throw — and everything after that call in CODAP's handler never runs. On
+    // a machine with a real mouse, id 1 is usually the live pointer, so capture
+    // would succeed. This is the leading explanation for Chad's
+    // "NEVER STARTED after 12017ms" on a thread that was NOT stalled.
     this.pointerId = 20260825;
     this.events = [];        // dispatch log (bounded)
   }
+
+  /**
+   * THE FRAME'S CURRENT DOCUMENT, READ FRESH EVERY TIME.
+   *
+   * This used to be `this.doc = win.document`, captured once in the constructor.
+   * `setupDemo()` runs at module-eval as well as on `connected`, and at
+   * module-eval the CODAP iframe can still be holding its initial `about:blank`
+   * — which IS same-origin, so the guard lets it through. Lose that race and
+   * `doc` points at a dead document for the lifetime of the page, with a
+   * failure mode that looks like anything but a stale reference:
+   *
+   *   - element-targeted dispatches still work, because the driver's resolvers
+   *     read elements from `iframe.contentDocument` — so Dot taps the toolbar,
+   *     makes a graph, and presses the pill exactly as she should;
+   *   - but `moveTarget: 'document'` and `upOn: 'document'` resolve to the DEAD
+   *     document, so every pointermove and the pointerup go nowhere. dnd-kit
+   *     sees a press and then silence: the ghost appears at the pill and never
+   *     moves, and the session is never closed, so it latches onto the next real
+   *     pointer — the student's;
+   *   - and `_awaitPreviewEl` polls the dead document, so it reports
+   *     NEVER STARTED however healthy the page is.
+   *
+   * That is Chad's report, line for line, including the 12 s give-up with no
+   * frozen thread and `__dotWatch` recording zero events while he watched the
+   * card appear. Not yet confirmed on his machine — `injDocIsLive` was true in
+   * the CDP testbed, which wins the race — but a cached document reference
+   * across a navigable frame is wrong on its own terms. A getter costs nothing.
+   */
+  get doc() { return this.win.document; }
+
+  /** True if the constructor captured a document the frame has since replaced. */
+  get staleDoc() { return this._docSnapshotAtBuild !== this.win.document; }
 
   _checkAbort() { if (this.isAborted()) throw new InjectAbort(); }
 
@@ -157,12 +198,21 @@ export class Injector {
   /**
    * Emergency release. Used when a drag is abandoned part-way (abort, wall
    * clock, thrown error) so CODAP is never left mid-drag.
+   *
+   * NOTHING in here may reference a `dragPointer()` local. It did — b70e734 put
+   * a `console.log(..., samples.length, ...)` on the FIRST line of the try, and
+   * `samples` lives in `dragPointer`, so every call threw ReferenceError before
+   * dispatching anything and the `catch` below swallowed it. From b70e734 until
+   * 2026-08-27 the release added in eca321a never fired even once: no pointerup,
+   * no pointercancel, no `EMERGENCY RELEASE` line on the console. That is why
+   * Chad's recordings still showed no pointerup "despite the fix", and why the
+   * attribute still jumped to his cursor at bail-out — an open dnd-kit session
+   * follows the next real mouse it sees. Keep the catch narrow-minded: it is a
+   * last resort for a dispatch failure, not a place to hide programming errors.
    */
   _releaseAt(pt, { nodeFor, upOn, wantPointer, wantMouse, startEl }) {
     try {
       const upNode = nodeFor(upOn);
-    // eslint-disable-next-line no-console
-    console.log('[dot-drag] releasing normally after', samples.length, 'samples');
       if (wantPointer) {
         this._dispatch(upNode, this._pointerEvent('pointerup', pt, { buttons: 0, pressure: 0 }), pt);
         this._dispatch(upNode, this._pointerEvent('pointercancel', pt, { buttons: 0, pressure: 0 }), pt);
@@ -184,14 +234,105 @@ export class Injector {
    * second with the ghost still frozen at the pill. Reported live by Chad
    * after the previous fix appeared to change nothing.
    */
-  async _awaitPreviewEl(sel, { maxMs = 8000, pollMs = 50 } = {}) {
+  /**
+   * DO NOT COUNT FROZEN TIME AGAINST THE BUDGET.
+   *
+   * A flat deadline asks the wrong question. It asks "has enough wall clock
+   * passed?" when what we need to know is "has CODAP had enough RUNNING time
+   * to answer?". When the main thread is blocked, those two diverge, and every
+   * "[dot-drag] NEVER STARTED after 12029ms" is that divergence: we abandoned
+   * a drag that CODAP had not yet had a chance to start. So a poll that comes
+   * back late is evidence the thread was blocked, not evidence the drag
+   * failed, and the deadline moves out by however long we were frozen — up to
+   * `hardMaxMs`, so a genuinely dead drag still ends.
+   *
+   * This is deliberately load-proportional rather than just a bigger number.
+   * On a healthy page it never extends at all and behaves exactly as the old
+   * 12 s deadline did.
+   *
+   * MEASUREMENT PROVENANCE, AND ITS LIMIT. The shape above (activation is one
+   * long task; the whole latency lands in a single frame gap; neither the
+   * wrapper's three.js render nor InputShield's re-asserts affect it) was
+   * measured 2026-08-27 over ~40 activations. But it was measured in a
+   * throwaway Chrome launched over CDP with a cold profile, and Chad's
+   * objection is correct: that browser lagged, and its ABSOLUTE numbers —
+   * 25 s activations, 100 s drags — are artifacts of it, not of CODAP. The
+   * profile shows the tell directly: three.js `getProgram` and `setValueM3`
+   * high in the stall, which is shader compilation on a cold GPU cache.
+   * Treat the relative findings as transferable and every millisecond figure
+   * as belonging to that testbed alone. Nothing here should be tuned from it.
+   *
+   * Note the old loop could also return an element PAST its deadline, because
+   * the element check preceded the deadline check and a long task could
+   * straddle both. That is how a 20.8 s activation got logged as a success
+   * inside a 12 s budget. The order below is deliberate and the reported wait
+   * is now honest.
+   */
+  async _awaitPreviewEl(sel, { maxMs = 8000, pollMs = 50, hardMaxMs = null } = {}) {
     const t0 = performance.now();
+    const hardDeadline = t0 + Math.max(maxMs, hardMaxMs ?? maxMs);
+    let deadline = t0 + maxMs;
+    let last = t0;
+    let frozenMs = 0;
     for (;;) {
       const el = this.doc.querySelector(sel);
       if (el) return el;
-      if (performance.now() - t0 > maxMs) return null;
+      const now = performance.now();
+      const late = now - last - pollMs;
+      if (late > 500) { frozenMs += late; deadline = Math.min(hardDeadline, deadline + late); }
+      last = now;
+      if (now > deadline) {
+        if (frozenMs > 0) {
+          // eslint-disable-next-line no-console
+          console.log(`[dot-drag] gave up after ${Math.round(now - t0)}ms, of which ` +
+            `${Math.round(frozenMs)}ms was a frozen main thread`);
+        }
+        return null;
+      }
       await sleep(pollMs);
     }
+  }
+
+  /**
+   * Watch for a drag that activates AFTER we abandoned it, and cancel it.
+   *
+   * Fire-and-forget on purpose: the caller has already moved on, and the whole
+   * point is to be watching during the window nobody is looking at. Only one
+   * watchdog runs at a time — a second drag attempt supersedes the first.
+   */
+  _cancelLateDrag(sel, { maxMs = 60000, pollMs = 250 } = {}) {
+    this._lateWatch = (this._lateWatch ?? 0) + 1;
+    const mine = this._lateWatch;
+    const t0 = performance.now();
+    const tick = async () => {
+      while (this._lateWatch === mine && performance.now() - t0 < maxMs) {
+        const el = this.doc.querySelector(sel);
+        if (el) {
+          const at = (() => {
+            const r = el.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          })();
+          // Escape is dnd-kit's documented cancel; the pointer events are for
+          // anything that is not listening for it.
+          for (const type of ['keydown', 'keyup']) {
+            this.doc.dispatchEvent(new KeyboardEvent(type, {
+              key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+              bubbles: true, cancelable: true,
+            }));
+          }
+          this._dispatch(this.doc, this._pointerEvent('pointercancel', at, { buttons: 0, pressure: 0 }), at);
+          this._dispatch(this.doc, this._pointerEvent('pointerup', at, { buttons: 0, pressure: 0 }), at);
+          this._dispatch(this.doc, this._mouseEvent('mouseup', at, { buttons: 0 }), at);
+          this._record('drag:cancelled-late', at, sel);
+          // eslint-disable-next-line no-console
+          console.log(`[dot-drag] LATE ACTIVATION at ${Math.round(performance.now() - t0)}ms `
+            + `after we gave up — cancelled so it cannot follow the student's mouse`);
+          return;
+        }
+        await sleep(pollMs);
+      }
+    };
+    tick().catch(() => { /* never let the watchdog break a demo */ });
   }
 
   async _awaitPreview(sel, expected, { tolPx = 28, maxMs = 4000, pollMs = 40 } = {}) {
@@ -358,7 +499,11 @@ export class Injector {
       onStep = null, upOn = 'document', moveTarget = 'document',
       events = 'both', useHandle = true, startAt = null,
       paceByFrame = true, followSel = null, followTolPx = 28, followMaxMs = 4000,
-      awaitDragStartSel = null, awaitDragStartMs = 12000, nudgePx = 8,
+      // The hard ceiling is a backstop, not a budget: it is only ever reached
+      // by extending through frozen time, and a page frozen that long has
+      // already failed the demo's wall clock. Not tuned from the CDP testbed.
+      awaitDragStartSel = null, awaitDragStartMs = 12000,
+      awaitDragStartHardMs = 30000, nudgePx = 8,
     } = opts;
     const wantPointer = events !== 'mouse';
     const wantMouse = events !== 'pointer';
@@ -404,12 +549,39 @@ export class Injector {
     // distance, then wait for the overlay to exist before carrying on.
     if (awaitDragStartSel) {
       const nudge = { x: a.x + nudgePx, y: a.y + nudgePx };
+      // TELL THE CALLER FIRST. `onStep` is how DemoDriver learns where Dot's
+      // pointer is, and InputShield restates exactly that point on every
+      // trusted mouse move — measured at 585 restatements in a single demo with
+      // a hand on the mouse. The nudge used to skip `onStep`, so for the whole
+      // activation wait every restatement told dnd-kit the pointer was back at
+      // the pill, undoing the 8px that had just activated it. Announce the
+      // position BEFORE dispatching, never after, so a restatement can only
+      // ever repeat where we are — not where we were.
+      onStep?.(nudge, 0, steps);
       if (wantPointer) this._dispatch(nodeFor(moveTarget), this._pointerEvent('pointermove', nudge), nudge);
       if (wantMouse) this._dispatch(nodeFor(moveTarget), this._mouseEvent('mousemove', nudge), nudge);
       const t0 = performance.now();
-      const el = await this._awaitPreviewEl(awaitDragStartSel, { maxMs: awaitDragStartMs });
+      const el = await this._awaitPreviewEl(awaitDragStartSel,
+        { maxMs: awaitDragStartMs, hardMaxMs: awaitDragStartHardMs });
       const waited = Math.round(performance.now() - t0);
       this._record(el ? 'drag:started' : 'drag:never-started', a, awaitDragStartSel);
+      // A DRAG THAT ACTIVATES AFTER WE GAVE UP MUST STILL BE CANCELLED.
+      //
+      // Observed on Chad's machine 2026-08-27, and it explains the whole visible
+      // symptom. We press; the deadline expires at 12 s WITHOUT extending, so
+      // the thread was not frozen — CODAP is simply slow to activate here. We
+      // give up, carry, and release. All of it lands on a dnd-kit that is not
+      // listening yet, so all of it is discarded, INCLUDING THE POINTERUP. Then
+      // at about 40 s dnd-kit finally activates off our long-dead pointerdown:
+      // the ghost appears at the pill, the session is open, and nothing will
+      // ever close it — so it follows the next real pointer it sees, which is
+      // Chad's. "The card comes under my cursor when the demo bails" is that.
+      //
+      // Releasing earlier cannot fix this: the release is what arrives too soon.
+      // So leave a watchdog behind. If the overlay turns up after we have walked
+      // away, cancel it — Escape first, which is dnd-kit's own cancel, then a
+      // pointercancel for anything that ignores Escape.
+      if (!el) this._cancelLateDrag(awaitDragStartSel);
       // eslint-disable-next-line no-console
       console.log(`[dot-drag] ${el ? 'started' : 'NEVER STARTED'} after ${waited}ms`);
     }
@@ -424,10 +596,13 @@ export class Injector {
       const t = easeInOut(i / steps);
       const pt = bow ? curvePoint(a, b, t, bow)
                      : { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      // onStep BEFORE the dispatch, for the reason given at the nudge above: it
+      // is what the shield restates, and restating the previous step mid-carry
+      // drags the ghost backwards.
+      onStep?.(pt, i, steps);
       // buttons:1 on every move — dnd-kit drops moves without a held button
       if (wantPointer) this._dispatch(moveNode, this._pointerEvent('pointermove', pt), pt);
       if (wantMouse) this._dispatch(moveNode, this._mouseEvent('mousemove', pt), pt);
-      onStep?.(pt, i, steps);
       lastPt = pt;
       samples.push({ ...pt, phase: 'move' });
       if (paceByFrame) await Promise.all([sleep(stepMs), this._frame()]);
@@ -480,6 +655,8 @@ export class Injector {
     }
     if (wantMouse) this._dispatch(upNode, this._mouseEvent('mouseup', b, { buttons: 0 }), b);
     samples.push({ ...b, phase: 'up' });
+    // eslint-disable-next-line no-console
+    console.log('[dot-drag] releasing normally after', samples.length, 'samples');
     return { from: a, to: b, samples };
   }
 
@@ -506,7 +683,43 @@ export class Injector {
       // perfectly happy with a fast dense stream, and the late ghost is normal
       // rather than a symptom. Pacing to the preview was therefore wrong AND
       // expensive (72.9s for one drag); it is off.
-      steps: 40, stepMs: 12, useHandle: true,
+      //
+      // SUPERSEDED, 2026-08-27 — the inference above has a hole in it. Chrome
+      // delivers real pointermoves ALIGNED TO THE FRAME, one per rAF, with the
+      // intermediate samples carried in getCoalescedEvents(). Chad's 384 moves
+      // are therefore ~384 frames' worth, and dnd-kit ran at most one collision
+      // pass per rendered frame however fast his hand moved. `dispatchEvent`
+      // is never coalesced and `paceByFrame` is false here, so OUR 40 moves are
+      // 40 collision passes that can queue with no frame between them. A human's
+      // stream self-throttles when the page slows down; ours does not. That is
+      // an asymmetry between his drag and Dot's that survives the paired
+      // trusted-vs-injected run, and it fits this repo's own super-linear
+      // measurement below.
+      //
+      // MEASURED, three conditions interleaved on a quiesced machine, three
+      // reps each, all nine landing. CARRY time — press-to-release, excluding
+      // activation:
+      //
+      //   40 moves, unpaced (what eca321a shipped)   5447 ms   [5447, 3359, 11841]
+      //   40 moves, paced to rAF                    17677 ms   [18245, 14064, 17677]
+      //    8 moves, unpaced                          2782 ms   [2782, 2918, 2036]
+      //
+      // So frame-pacing is the WORST option: on a page whose frames are seconds
+      // apart, pacing 40 steps to rAF pays the stall forty times. (Conundrum doc
+      // hypothesis 5 reached the same verdict for the wrong reason.) What costs
+      // money is the NUMBER OF DISPATCHED MOVES, because each one is a full
+      // collision pass. Eight is not just faster on the median, it is far more
+      // predictable — 2.0-2.9 s against 3.4-11.8 s — and predictability is what
+      // a demo on a wall clock actually needs.
+      //
+      // Back to 8, which is what P0 measured at 3.2 s before eca321a raised it.
+      // TRADE-OFF, deliberately taken and worth revisiting: `onStep` moves the
+      // paw sprite once per dispatched move, so 8 steps make the paw hop rather
+      // than glide. The right fix is to interpolate the paw on the driver's own
+      // frame tick and leave the event count alone — smoothness belongs to the
+      // renderer, not to the event stream. Not done here because it changes how
+      // the demo LOOKS and that wants eyes on it.
+      steps: 8, stepMs: 70, useHandle: true,
       paceByFrame: false, followSel: null,
       // Wait for dnd-kit to be listening before carrying — see dragPointer.
       awaitDragStartSel: '.dnd-kit-drag-overlay',

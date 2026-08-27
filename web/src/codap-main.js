@@ -10,6 +10,7 @@ import { Injector, sameOrigin } from './inject.js';
 import { DemoDriver } from './demo/demo-driver.js';
 import { installTracer } from './demo/trace-input.js';
 import { installRecorder } from './demo/record-drag.js';
+import { installDragDomWatcher } from './demo/watch-drag-dom.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
@@ -187,9 +188,40 @@ document.querySelectorAll('[data-sim]').forEach(b => { b.onclick = sims[b.datase
 // cross-origin page (codap.html) everything below simply stays absent and the
 // wrapper behaves exactly as it did before.
 let demo = null;
+/**
+ * `about:blank` IS same-origin, so `sameOrigin()` alone is not a readiness
+ * check — it says yes to the placeholder document every iframe holds before its
+ * real one arrives. `setupDemo()` runs at module-eval, and CONFIRMED ON CHAD'S
+ * MACHINE 2026-08-27 (`__demo.inj.staleDoc === true`) it could win that race and
+ * build the whole demo stack against the placeholder.
+ *
+ * The Injector now reads `doc` through a live getter, so a stale capture no
+ * longer breaks anything — but building against a document that is about to be
+ * thrown away invites the same class of bug in anything else that caches, so
+ * refuse to set up until CODAP's real document is actually there. The retries
+ * on `connected` and on the 4 s timer will come back.
+ */
+function codapDocReady(iframe) {
+  let d = null;
+  try { d = iframe?.contentDocument; } catch { return false; }
+  if (!d) return false;
+  const href = d.location?.href ?? '';
+  if (href === 'about:blank' || href === '') return false;
+  return !!d.body;
+}
+
+let setupTries = 0;
 function setupDemo() {
   const iframe = document.getElementById('codap');
   if (demo || !sameOrigin(iframe)) return;
+  if (!codapDocReady(iframe)) {
+    // Keep coming back rather than waiting on the two fixed retries: if CODAP's
+    // document is late, silently never setting up is a worse failure than the
+    // one being fixed. Bounded so a wedged frame cannot spin forever.
+    if (setupTries++ < 240) setTimeout(setupDemo, 250);
+    else logLine('demo: CODAP document never became ready — live demos off', '#c92a2a');
+    return;
+  }
   const inj = new Injector(iframe.contentWindow, {
     isAborted: () => !!demo?.driver?.aborted,
   });
@@ -339,6 +371,10 @@ function setupDemo() {
   window.__demo = demo;
   installTracer();                 // window.__dotTrace — see trace-input.js
   installRecorder();               // window.__dotRecord — see record-drag.js
+  // window.__dotWatch — what CODAP actually renders during a drag. Answers the
+  // question left open by "NEVER STARTED after 12017ms" with no frozen-thread
+  // line: the thread was running, so what IS the black card Chad sees?
+  window.__dotWatch = installDragDomWatcher(() => inj.doc);
   window.__inj = inj;
   logLine('same-origin CODAP — window.__demo available', '#1c63d6');
 }
@@ -444,8 +480,45 @@ setInterval(() => {
 
 // ------------------------------------------------------------- loop
 const clock = { last: performance.now() };
+// Experiment kit — see docs/EXPERIMENT-RENDER-STARVATION.md. `lite` is raised
+// by DemoDriver.dragAttribute (when armed via `liteDuringDrag`) so the WebGL
+// render and character animation are skipped for the duration of a drag while
+// script logic (driver.tick / engine.tick) keeps running. `gaps` records every
+// frame gap over 250 ms as [performance.now() rounded, gap ms].
+// `noReassert` is arm C: it stops InputShield restating Dot's position after
+// every trusted mouse move, which is the only path by which a HUMAN'S mouse
+// reaches CODAP during a demo. `drags` records [start, end] of each drag window
+// so a gap can be told from one outside it.
+window.__dotPerf = {
+  liteDuringDrag: false,
+  lite: false,
+  noReassert: false,
+  gaps: [],
+  drags: [],
+  reset() { this.gaps.length = 0; this.drags.length = 0; },
+  /** Gaps inside the last drag window, worst first. */
+  dragGaps() {
+    const w = this.drags[this.drags.length - 1];
+    if (!w) return [];
+    return this.gaps.filter((g) => g[0] >= w[0] && g[0] <= (w[1] ?? Infinity))
+      .sort((a, b) => b[1] - a[1]);
+  },
+};
 stage.renderer.setAnimationLoop(() => {
   const now = performance.now();
+  // A HIDDEN TAB DRAWS NOTHING. Ordinary Chrome throttles rAF in a background
+  // tab, so this costs nothing there — but automation browsers are launched
+  // with renderer backgrounding disabled, and there the loop runs flat out
+  // forever in a window nobody can see. Found 2026-08-27: THREE leaked
+  // agent-browser instances on Chad's machine, all of them parked on
+  // codap-same.html, each burning a full core, the oldest running for over a
+  // day. Every agent-driven test session had been leaking one. That is the
+  // mechanism behind DRAG-GHOST-CONUNDRUM.md §8 — "closing two idle automation
+  // browsers changed MakeScatterplot from 2-of-3 failing to 5-of-5 passing" —
+  // and it was our page doing the burning.
+  if (document.hidden) { clock.last = now; return; }
+  const gap = now - clock.last;
+  if (gap > 250) window.__dotPerf.gaps.push([Math.round(now), Math.round(gap)]);
   // The clamp is a guard against one enormous jump after a tab is backgrounded,
   // NOT a speed limit — but at 0.05 s it was acting as one. CODAP's own work
   // drags this page down to ~4 fps while a demo runs (measured: 26 fps idle,
@@ -455,8 +528,15 @@ stage.renderer.setAnimationLoop(() => {
   // 1.4 s tap took 7-33 s of wall clock, which is what was pushing demos past
   // their 60 s cap. 0.25 s keeps the backgrounded-tab guard and lets clips
   // play in real time when frames are sparse.
-  const dt = Math.min(0.25, (now - clock.last) / 1000);
+  const dt = Math.min(0.25, gap / 1000);
   clock.last = now;
+  if (window.__dotPerf.lite) {
+    // Character freezes mid-pose; the drag itself is promise-driven and the
+    // driver/engine still tick, so the demo continues.
+    demo?.driver.tick(dt);
+    engine.tick(dt);
+    return;
+  }
   axo.update(dt);
   // AFTER axo.update so the skeleton is current this frame: the driver reads
   // the paw's world position and places the body from it (P1).
