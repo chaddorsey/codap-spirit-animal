@@ -317,24 +317,27 @@ Two holes, not corrections:
 - Evidence scoping against `hiddenCases` / `displayOnlySelectedCases`. A
   correlation over all cases while the graph shows 12 unhidden ones is "wrong but
   loud" in a form the `n` gate does not catch.
-- **The pedagogical literature review — NOT YET STARTED, and the earlier reason
-  given for that was wrong.** This plan previously recorded it as "attempted
-  2026-08-28 and did not run (session web-search budget exhausted, 200/200)."
-  The web budget was genuinely exhausted, but that was never the binding
-  constraint: **`docs/pedagogy-reference/` holds five papers on disk**, needing no
-  network at all, including *Data Moves as a Focusing Lens for Learning to Teach
-  with CODAP*, `ICOTS10_9B3.pdf`, `3_HIGH_SCHOOL_DATA_SCIENCE_A_D.pdf`, `130.pdf`
-  and `qt0mg8m7g6.pdf`. The item was closed on an invalid rationale without
-  checking the shelf already in the repository, and the risk row that reads
-  "recorded, not mitigated" inherited that invalidity. Read the local corpus
-  first and record what it does and does not settle.
+- **The pedagogical literature review — DONE. See
+  `docs/verification/wonderings/pedagogy-literature.md`.** This plan twice
+  recorded it as not run, both times wrongly: first on a 161-byte output file that
+  a completed agent also produces, then on an exhausted web-search budget that
+  stopped *this session* searching but not the agent, which was still working and
+  delivered after ~60 minutes. Separately, `docs/pedagogy-reference/` holds five
+  papers on disk needing no network, which were never checked either. **Two
+  provenance errors on one item; the lesson is the project's own — an absence is
+  not evidence unless you have looked in the place the thing would be.**
 
-  It must establish: whether supplying questions suppresses learners' own
-  question-generation (Chin & Osborne; Koedinger & Aleven's assistance dilemma;
-  scaffolding fading); habituation rates for peripheral displays, which set the
-  currently-guessed cap and cadence; prior art in TinkerPlots / Fathom /
-  InquirySpace / CODAP; whether deliberately fallible prompts help or harm trust
-  calibration; and whether a reversal-within-groups prompt is meaningful at age 10.
+  Headline: the suppression risk is **plausible but unstudied** — no study has
+  ever supplied inquiry questions and measured learners' own question-generation —
+  and the closest analogues point *away* from it. The real hazard is to the
+  **diversity and ownership** of student questions, not their quantity or quality.
+  §7 of that file lists ten specific things it contradicts in this plan, including
+  the panel location, the "non-interactive at M0" deferral, the 400 ms fade, the
+  1-in-3 open ratio, and the Tier-B `reversal` observer at age 10. **Citations are
+  unverified** — the search budget was exhausted before the results arrived — so
+  confirm by DOI before any of it becomes load-bearing.
+
+  Still unread and needing no network: the five PDFs in `docs/pedagogy-reference/`.
 
 ## High-Level Technical Design
 
@@ -881,6 +884,47 @@ The pairwise-correlation bug and the missing identifier exclusion are corrupting
 fascinatedly at a spurious relationship on the shipping fixture. That is a live
 defect in shipped code, not a prerequisite for a speculative feature. Bundling it
 with six speculative units makes the bug fix inherit their risk of abandonment.
+
+### D10. What the pedagogy research changes — arrived after D1–D9 were written
+Full record and verification caveats in
+`docs/verification/wonderings/pedagogy-literature.md`. It **converges with D1**
+from a completely different direction: three document reviewers found the uptake
+metric measures compliance; the literature says the failure mode is narrowed
+exploration and reduced felt authorship, which uptake cannot see. Both point at
+the same replacement — **measure question/exploration diversity across students,
+with a periodic panel-off condition**, which is also the answer to the §13.2
+question this plan recorded as unanswerable.
+
+Four further items are contradicted rather than merely qualified, and the source
+calls the first two the best-supported changes in its whole review:
+
+1. **The tool shelf may be the worst available location** — banner blindness is
+   learned, region-specific, and strongest under exactly the goal-directed task
+   this is. This converges with the design reviewer's independent IA finding that
+   the anchor was chosen for availability, not rationale.
+2. **"Non-interactive at M0, clicking at M2" is the wrong deferral.** A panel whose
+   success metric is "the student plotted the pair" needs **affordance, not
+   prose** — one-gesture uptake is what makes such systems work.
+3. **The 400 ms fade is a change-blind transition**, the documented recipe for not
+   being noticed. Slow the *dwell*, not the crossfade; do not make the panel small.
+   (The design reviewer independently proposed a rise-and-sink motion instead.)
+4. **The M1 cap of 3 is arithmetically unreachable** at 90 s spacing with a 180 s
+   lifetime — a plain contradiction between two of the plan's own constants.
+
+And two cheap wins: give the learner **per-wondering dismissal** (self-selected
+withdrawal was the highest-scoring customization method, g = 0.519, beating both
+performance-adapted and scheduled fading), and **frame the panel as partial** —
+*"here are three of many"* rather than *"here are the questions worth asking."*
+Framing determines the *sign* of the effect on originality, and children explore
+**more** broadly when they know a source omitted something. This is where the
+origin's deliberate-fallibility idea earns its keep: as framing, not as an error
+rate. Relatedly, the origin's 1-in-3 open ratio should be **cut** — 0.67 is the
+automation-abandonment cliff.
+
+One risk nobody had flagged: **prompting produced substantial motivation decreases
+over time in the one study that measured it, whether or not it was faded.** For an
+ambient companion that is the failure mode to watch, and no education study in the
+review measured it.
 
 ### D9. Smaller, but decide before U1 starts
 - **No visual specification.** "Italic, light, lower contrast" is a mood. The plan
