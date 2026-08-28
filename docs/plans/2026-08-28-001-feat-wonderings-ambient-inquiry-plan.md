@@ -90,6 +90,10 @@ otherwise re-open them.
   learner's history, in conjunction with what is known about the dataset.
 - **R8** *(brief h)* — A scene model and a data/relationship model that are
   usable, extensible, and appropriate.
+- **R9** *(added 2026-08-28)* — Wonderings arrive **ambiently and occasionally,
+  not permanently**. A governing engine makes them occasional, appropriate,
+  adjustable, and responsive to the student's activity and activity level. See
+  [the wondering engine](#the-wondering-engine-r9).
 
 ## Scope Boundaries
 
@@ -391,6 +395,74 @@ Observation {
   openness    'open' | 'checkable'
 }
 ```
+
+## The Wondering Engine (R9)
+
+Wonderings must be occasional, appropriate, adjustable and tied to the student's
+activity level. **Almost all of that already exists and is self-tested** —
+`web/src/behavior-engine.js` was built to decide when an ambient companion should
+offer something. Reuse its *state*; do not reuse its *lifecycle*.
+
+### What to reuse, verbatim
+
+`BehaviorEngine.state` (`:65-84`) already carries every activity signal this needs:
+
+| Signal | Field | Use |
+|---|---|---|
+| Activity level | `recentMoves` (ring of 10, each `{move, kind, at}`) | moves-per-minute — the flow detector |
+| Stall | `idleSeconds` (live getter over `performance.now()`) | the moment of actual need |
+| Churn | `componentChurn` (ring of 20 timestamps) | thrashing ≠ productive activity |
+| What's been tried | `dataMoves` Map → `{count, firstAt, lastAt}` | novelty, already feeding `suggestMoves` |
+| Disposition | `mood` — playful / curious / sleepy / mischievous, 0–1, drifting | `curious` already gates `wise-attend` at 0.45 |
+| Just-acted | `lastActionAt`, `ACTION_GRACE_SEC = 0.35` | the "don't interrupt" precedent |
+
+### The rate governor — the part that is new
+
+**The core rule is inverted from the obvious one: a student in flow gets fewer
+wonderings, not more.** `CHARACTER.md:105-107` is binding — *"Never interrupt
+flow… Dot is interruptible by design."* The moment of need is the stall, not the
+streak.
+
+- **In flow** (several moves in the last minute, `idleSeconds` low) — say nothing.
+- **At a natural pause** (a data move just landed and settled, then quiet) — the
+  best moment, because the student is looking at a result.
+- **Stalled** (`idleSeconds` past a threshold, no recent moves, or an empty graph
+  sitting) — the actual moment of need. This is where the one wondering goes.
+- **Thrashing** (`componentChurn` high) — say nothing; the student is not stuck
+  for want of a question.
+
+**De-escalation, not escalation.** The behaviour engine escalates when a nudge is
+ignored (`escalation.after`). Wonderings must do the **opposite**: each unacted
+wondering lengthens the interval before the next. Two reasons, both evidenced —
+`docs/PHASE7.md`'s under-cheer rule (*"a missed cheer is invisible; a wrong cheer
+is noise"*), and Nückles et al., the one study that measured it, which found
+**prompting produced substantial motivation decreases over time whether or not it
+was faded** (`docs/verification/wonderings/pedagogy-literature.md` §6).
+
+**Adjustable** means the rate is a named, documented constant with its unit and
+rationale, exposed on `window.__dotWonder` for live tuning, and surfaced in Dot's
+Dashboard alongside the visibility toggle. Per the same source, the highest-scoring
+customization method in the literature was **self-selected withdrawal**
+(g = 0.519, beating performance-adapted and scheduled fading) — so **per-wondering
+dismissal** belongs here too, not only a global switch.
+
+### What NOT to reuse
+
+The engine's *lifecycle* is wrong for this, and `docs/PLAYBOOK-behaviors.md` is
+explicit that engine edits require stopping and asking. Three mismatches:
+
+1. **Timescale.** An intervention is momentary; a wondering persists for minutes.
+2. **Cancellation.** `_evaluate` cancels on any student action past a 0.35 s grace
+   — but a student acting is precisely when a wondering should *stay*, since
+   acting on it is the point.
+3. **Blocking.** `_evaluate:266` refuses to fire anything while
+   `actor.oneShot || actor.motion` is set, so a zoomie would suppress wonderings
+   for no reason.
+
+So: **read `engine.state`, run a separate display lifecycle.** No engine edit,
+which keeps the scope boundary and the playbook intact. The seam already exists
+and is already used — `codap-main.js:427` writes derived state onto
+`engine.state` by bare assignment, which is how `insight` is wired today.
 
 ## Implementation Units — M0
 
