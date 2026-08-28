@@ -43,6 +43,17 @@ const TUTORIAL_DOCS = {
     : base;
 }
 
+// Bench flags, added 2026-08-28 so a subsystem can be exercised on its own.
+// Testing Wonderings against a live CODAP meant watching for one italic line
+// while Dot did zoomies over it and the workspace started empty; both of those
+// are the rest of the system, not this one. Orthogonal on purpose — `quiet` is
+// worth having whenever you are watching anything that is not the character,
+// and `fixture` whenever you want known data without importing a CSV by hand.
+//   ?quiet=1    start with the behaviour engine disabled (Dot idles, nothing fires)
+//   ?fixture=1  create the 12-row Mammals dataset + case table once CODAP connects
+const QUIET_FLAG = new URLSearchParams(location.search).get('quiet') === '1';
+const FIXTURE_FLAG = new URLSearchParams(location.search).get('fixture') === '1';
+
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
 axo.setPixelHeight(150);
@@ -70,6 +81,11 @@ const engine = new BehaviorEngine(axo, bridge, makeBehaviors(),
   { log: (t) => logLine(t, '#7048e8') });
 window.__axo = axo; window.__bridge = bridge; window.__engine = engine; // debug access
 
+// `?quiet=1` — the engine stays constructed and keeps its 15 s component resync
+// (force-fire and the model depend on it, see behavior-engine.js:115-116); only
+// firing is suppressed. The dashboard button below reflects and toggles it.
+if (QUIET_FLAG) engine.enabled = false;
+
 // Dot's personal-space sense: the cursor brushing the whisker halo fires a
 // mouse:near event; the yield-to-mouse behavior scoots sweetly aside
 const whisker = new Whisker(axo, (x, y) => engine.simulate('mouse:near', { x, y }));
@@ -83,10 +99,16 @@ window.__whisker = whisker;
 const dashBadge = installDashboardBadge($('#panel'),
   { frame: document.getElementById('codap') });
 $('#panelToggle').onclick = () => dashBadge.toggle();
+const paintBehaviours = (el) => {
+  el.innerHTML = `behaviors: <b>${engine.enabled ? 'on' : 'off'}</b>`;
+};
 $('#behaviors').onclick = (e) => {
   engine.enabled = !engine.enabled;
-  e.currentTarget.innerHTML = `behaviors: <b>${engine.enabled ? 'on' : 'off'}</b>`;
+  paintBehaviours(e.currentTarget);
 };
+// Paint once at startup, or `?quiet=1` leaves the button reading "on" over a
+// disabled engine — the exact kind of lying readout that costs an afternoon.
+paintBehaviours($('#behaviors'));
 
 const calv = $('#calv');
 const showCal = () => calv.textContent =
@@ -392,6 +414,15 @@ function setupDemo() {
   window.__dotWatch = installDragDomWatcher(() => inj.doc);
   window.__inj = inj;
   logLine('same-origin CODAP — window.__demo available', '#1c63d6');
+
+  // `?fixture=1` — known data, so a subsystem under test is not also waiting on
+  // the student to import a CSV. `ensureMammals` is idempotent (it checks for
+  // the context first), so the retry loop above cannot create it twice.
+  if (FIXTURE_FLAG) {
+    ensureMammals(api)
+      .then(() => logLine('fixture: Mammals ready (12 cases, Diet included)', '#1c63d6'))
+      .catch((e) => logLine(`fixture FAILED: ${e.message}`, '#c92a2a'));
+  }
 }
 // The iframe is usually still loading at module-eval time, so try again once
 // CODAP announces itself (and once more on a timer for a cold cache).
