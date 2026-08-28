@@ -287,8 +287,23 @@ Two holes, not corrections:
 
 - **Does M0 ship to classrooms at all**, given that the origin's §13.2 (supplying
   questions may suppress students' own question-asking) is unmitigated and not
-  measurable by uptake? External pedagogical research was commissioned for this
-  plan; see [Risks](#risks--dependencies).
+  measurable by uptake? **The pedagogical literature review this question needs
+  was attempted on 2026-08-28 and did not run** — the session's web-search budget
+  was exhausted (200/200), so the agent produced nothing. Treat this as an open
+  research task, not as a question that was investigated and left unresolved.
+  What it should establish, before M0 reaches any classroom:
+  - whether systems that supply good questions measurably suppress learners' own
+    question-generation (Chin & Osborne on student questioning; Koedinger &
+    Aleven's assistance dilemma; the scaffolding-fading literature), and whether
+    any mitigation is known;
+  - habituation rates for persistent peripheral displays, which set the cap and
+    cadence in §8.2 that are currently guesses;
+  - prior art in exploratory data-analysis learning environments — TinkerPlots,
+    Fathom, InquirySpace, CODAP itself — since someone may have shipped this;
+  - whether deliberately fallible prompts help or harm trust calibration
+    (productive failure), which §9.3 assumes without evidence;
+  - whether a reversal-within-groups prompt (Simpson's paradox, Tier B) is
+    meaningful or harmful at age 10.
 - **Default toggle state for M0.** The origin says *off*; but M1 and M3 are gated
   on uptake data, and a default-off feature with no discovery affordance yields
   approximately zero sessions of it. Either default on (with the cap of 1 as the
