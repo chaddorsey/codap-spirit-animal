@@ -16,7 +16,7 @@ import { createWonderingsPanel } from './ui/wonderings-panel.js';
 import { createSceneModel, isDriverSuspended } from './scene-model.js';
 import {
   buildDatasetModel, governorReducer, initialGovernorState, intervalSeconds,
-  nextWondering, PARTIAL_FRAMING_LABEL,
+  nextWondering, PARTIAL_FRAMING_LABEL, GOVERNOR_CONSTANTS,
 } from './wonderings/index.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
@@ -683,6 +683,44 @@ function mountWonderings() {
   }, WONDERING_TICK_MS);
   logLine('wonderings: on', '#0b5a6b');
 }
+
+// `window.__dotWonder` — the bench handle. Added 2026-08-28 after watching the
+// panel sit empty and having no way to ask it why.
+//
+// THE THING THAT SURPRISES EVERYONE: a wondering needs STALL_IDLE_SEC (45 s) of
+// quiet, and `behavior-engine.js:96` counts EVERY CODAP message as a student
+// action. CODAP chatters while it loads and while `?fixture=1` builds the
+// dataset, so the idle clock only starts once it goes quiet — and clicking
+// around to see whether it works is precisely what stops it working. That is
+// the "never interrupt flow" rule (docs/CHARACTER.md:105-107) doing its job,
+// and it makes the feature almost untestable by hand without this handle.
+window.__dotWonder = {
+  /** What the pipeline thinks right now, without waiting for the next tick. */
+  why: () => {
+    const w = lastWonderingReport;
+    return {
+      on: wonderingsOn,
+      activity: w?.activity ?? '(no tick yet)',
+      reason: w?.reason ?? '(no tick yet)',
+      earned: w?.wonderings?.length ?? 0,
+      idleSeconds: Math.round(engine.state.idleSeconds),
+      needsIdleSeconds: GOVERNOR_CONSTANTS.STALL_IDLE_SEC,
+      offers: governorState.offers,
+      nextIntervalSec: Math.round(intervalSeconds(governorState)),
+      top: (w?.wonderings ?? []).slice(0, 5).map((x) => x.text),
+    };
+  },
+  /** Show one NOW, bypassing the governor entirely. Does not touch its state,
+   *  so the real pacing is unchanged afterwards. */
+  now: () => {
+    const w = lastWonderingReport?.wonderings?.[0];
+    if (!w) return '(nothing earned — check __dotWonder.why())';
+    wonderingsPanel?.show(w.text);
+    return w.text;
+  },
+  /** Every wondering the current dataset+scene earns, as plain text. */
+  all: () => (lastWonderingReport?.wonderings ?? []).map((x) => x.text),
+};
 
 function unmountWonderings() {
   clearInterval(wonderingsTimer); wonderingsTimer = null;
