@@ -28,7 +28,11 @@
  * wonderings, which would otherwise take twelve minutes of wall clock to
  * observe. Callers must pass the SAME monotonic seconds base the engine writes
  * into `lastActionAt` — i.e. `behavior-engine.js`'s exported
- * `now() = performance.now() / 1000`, never `Date.now()`.
+ * `now() = performance.now() / 1000`, never `Date.now()`. Every window here
+ * tests BOTH ends, so a caller that gets the base wrong produces timestamps in
+ * the future that count as nothing rather than as permanent activity — see
+ * `insideWindow`. The mismatch still fails, but it fails toward silence instead
+ * of presenting as a student in perpetual crisis.
  *
  * A DELIBERATE NON-READ. `engineState.idleSeconds` is a live getter that calls
  * `performance.now()` inside itself (`behavior-engine.js:81-83`). Reading it
@@ -41,7 +45,9 @@
  * of the behaviour engine's escalation, justified by `docs/PHASE7.md`'s
  * under-cheer rule and by the one study that measured it, which found prompting
  * decays motivation over time whether or not it is faded. The reducer therefore
- * increments `consecutiveUnacted` on `offered`, not on a later `unacted` report:
+ * increments `consecutiveUnacted` on `offered` ALREADY, without waiting for a
+ * later `unacted` report (which increments too, and is the fade-only caller's
+ * only signal — see `governorReducer`):
  * the ledger and uptake instrumentation are DELIBERATELY out of scope for this
  * build (plan `-002`, "What is deliberately NOT in this build"), so an `acted`
  * signal may never arrive at all, and a governor that only slowed down when told
@@ -49,11 +55,17 @@
  * count fails in the quiet direction, which is the direction this project
  * always chooses.
  *
- * ADJUSTABLE WITHOUT BECOMING IMPURE. R9 asks for live tuning. Module-level
- * mutable state would destroy purity, so the defaults are exported frozen as
- * `GOVERNOR_CONSTANTS` and an override map may be carried on
- * `governorState.tuning`. The dashboard writes the state; this module only ever
- * reads it.
+ * ADJUSTABLE WITHOUT BECOMING IMPURE, AND WITHOUT BEING TRUSTED. R9 asks for
+ * live tuning. Module-level mutable state would destroy purity, so the defaults
+ * are exported frozen as `GOVERNOR_CONSTANTS` and an override map may be carried
+ * on `governorState.tuning`. The dashboard writes the state; this module only
+ * ever reads it — and validates it. Because the dashboard writes it, `tuning` is
+ * untrusted INPUT, not configuration: every override is clamped to the range in
+ * `GOVERNOR_TUNING_RANGES` and anything non-finite is discarded. The bound that
+ * matters is `DE_ESCALATION_FACTOR >= 1`; a factor of 0.5 was measured
+ * 2026-08-28 to turn three unacted wonderings into an ELEVEN-second interval,
+ * i.e. de-escalation running backwards, which is the one thing this module
+ * cannot be allowed to do.
  *
  * TWO OPTIONS CONSIDERED AND REJECTED, so they are not re-proposed:
  *   1. Gating on `mood` generally (curious → talk more). Rejected: wonderings
@@ -89,6 +101,39 @@ const BASE_INTERVAL_SEC = 90;      // seconds between wonderings while they are 
 const DE_ESCALATION_FACTOR = 1.8;  // unitless multiplier applied per consecutive unacted wondering — each one ignored makes the next wait 80% longer
 const MAX_INTERVAL_SEC = 900;      // seconds (15 min) ceiling; 90 x 1.8^n first exceeds it at n = 4, so growth is STRICT across the three consecutive unacted wonderings the metric names, and flat thereafter
 
+/**
+ * Inclusive `[min, max]` bounds for every tunable, exported so the dashboard
+ * that writes `governorState.tuning` can show the same range this module
+ * enforces. An override outside its range is CLAMPED to the nearest bound; one
+ * that is not a finite number is REJECTED and the default stands. Each bound
+ * below is the value past which a setting stops tuning the governor and starts
+ * disabling it — see `clampTuning`.
+ */
+export const GOVERNOR_TUNING_RANGES = Object.freeze({
+  // seconds; below ~5 s no ring of moves can span the window, above 10 min "recent" is meaningless
+  FLOW_WINDOW_SEC: Object.freeze([5, 600]),
+  // moves; 0 would make EVERY state in-flow and silence the module forever, 10 is the ring's capacity
+  FLOW_MOVE_COUNT: Object.freeze([1, 10]),
+  // seconds; 0 would erase the settled line entirely
+  SETTLED_IDLE_SEC: Object.freeze([1, 600]),
+  // seconds; 0 would make every state a stall, 30 min is past any plausible moment of need
+  STALL_IDLE_SEC: Object.freeze([1, 1800]),
+  // seconds; a pause must still be attributable to real work, and an hour is not
+  PAUSE_AFTER_MOVE_SEC: Object.freeze([5, 3600]),
+  // seconds; window over `componentChurn`
+  THRASH_WINDOW_SEC: Object.freeze([5, 600]),
+  // events; 1 would call a single component create "thrashing", the engine keeps at most 20
+  THRASH_CHURN_COUNT: Object.freeze([2, 20]),
+  // 0..1 on the sleepy dial; the engine's wake floor is 0.1, so any threshold at or below it reads EVERY awake student as abandoned
+  DORMANT_SLEEPY: Object.freeze([0.2, 1]),
+  // seconds; under 5 s wonderings would stack faster than they can be read, 15 min is the ceiling's own scale
+  BASE_INTERVAL_SEC: Object.freeze([5, 900]),
+  // unitless; **the load-bearing bound** — below 1 each unacted wondering would SHORTEN the wait, inverting de-escalation into escalation and breaking `docs/CHARACTER.md:105-107`
+  DE_ESCALATION_FACTOR: Object.freeze([1, 5]),
+  // seconds; 0 would mean no quiet period at all, 2 h is a whole class period of silence
+  MAX_INTERVAL_SEC: Object.freeze([10, 7200]),
+});
+
 /** Default rate constants, frozen. Override per-session via `governorState.tuning`. */
 export const GOVERNOR_CONSTANTS = Object.freeze({
   FLOW_WINDOW_SEC,
@@ -115,13 +160,42 @@ export const ACTIVITY_STATES = Object.freeze([
 /** A usable number — not `undefined`, not `null`, not `NaN`. */
 function finite(v) { return typeof v === 'number' && Number.isFinite(v); }
 
-/** Resolve the rate constants for a state, applying its `tuning` overrides. */
+/**
+ * Bring one override inside its documented range, or reject it.
+ *
+ * `governorState.tuning` is written by the DASHBOARD, which makes it untrusted
+ * input rather than configuration. Trusting a finite number was enough to
+ * invert the module's single purpose: `{DE_ESCALATION_FACTOR: 0.5}` turned each
+ * unacted wondering into a SHORTER wait, so three ignored wonderings brought the
+ * interval down from 90 s to 11.25 s — the governor talking over the student
+ * precisely because the student was not listening, against
+ * `docs/CHARACTER.md:105-107`. Measured 2026-08-28.
+ *
+ * Out of range is clamped rather than rejected because a dashboard slider that
+ * silently snapped back to a default would read as broken; clamping keeps the
+ * setting's direction while refusing its extremity.
+ *
+ * @returns {number} the value to use for `key`.
+ */
+function clampTuning(key, value) {
+  if (!finite(value)) return GOVERNOR_CONSTANTS[key];
+  const range = GOVERNOR_TUNING_RANGES[key];
+  if (!range) return GOVERNOR_CONSTANTS[key];
+  return Math.min(range[1], Math.max(range[0], value));
+}
+
+/**
+ * Resolve the rate constants for a state, applying its validated `tuning`
+ * overrides. Only OWN, KNOWN keys are consulted — an inherited `BASE_INTERVAL_SEC`
+ * arriving through `__proto__` is not a setting anyone chose.
+ */
 function constantsFor(governorState) {
   const tuning = governorState?.tuning;
   if (!tuning || typeof tuning !== 'object') return GOVERNOR_CONSTANTS;
   const merged = { ...GOVERNOR_CONSTANTS };
   for (const key of Object.keys(GOVERNOR_CONSTANTS)) {
-    if (finite(tuning[key])) merged[key] = tuning[key];
+    if (!Object.prototype.hasOwnProperty.call(tuning, key)) continue;
+    merged[key] = clampTuning(key, tuning[key]);
   }
   return merged;
 }
@@ -138,13 +212,29 @@ function idleFrom(engineState, nowSeconds) {
   return finite(idle) ? Math.max(0, idle) : 0;
 }
 
+/**
+ * Is a timestamp `age` seconds old inside a window `windowSec` wide?
+ *
+ * BOTH ends are tested, and the lower one is the point. A window is an interval;
+ * checking only `age <= windowSec` accepts every NEGATIVE age, i.e. every
+ * timestamp in the future. That is exactly the shape a clock-base mismatch takes
+ * — a caller passing `Date.now()` seconds against `lastActionAt` written from
+ * `performance.now()` puts every stamp ~1.7e9 s in the future — and it fails
+ * SILENTLY in the loud direction: measured 2026-08-28,
+ * `activityState({componentChurn: [1e6 x 4], lastActionAt: 0}, 100)` returned
+ * `thrashing`, so a mismatched clock presented as a student in crisis and
+ * suppressed the module forever. With the lower bound it reads `stalled`, which
+ * is what a state with no real activity in it should read as.
+ */
+function insideWindow(age, windowSec) { return age >= 0 && age <= windowSec; }
+
 /** Count entries of a timestamp-bearing array inside `[now - window, now]`. */
 function countSince(entries, at, nowSeconds, windowSec) {
   if (!Array.isArray(entries)) return 0;
   let n = 0;
   for (const entry of entries) {
     const t = at(entry);
-    if (finite(t) && nowSeconds - t <= windowSec) n += 1;
+    if (finite(t) && insideWindow(nowSeconds - t, windowSec)) n += 1;
   }
   return n;
 }
@@ -199,7 +289,7 @@ export function activityState(engineState, nowSeconds, tuning = GOVERNOR_CONSTAN
   }
 
   const last = lastMoveAt(engineState);
-  if (last !== null && nowSeconds - last <= K.PAUSE_AFTER_MOVE_SEC) return 'natural-pause';
+  if (last !== null && insideWindow(nowSeconds - last, K.PAUSE_AFTER_MOVE_SEC)) return 'natural-pause';
   return 'settling';
 }
 
@@ -270,8 +360,15 @@ export function shouldOffer(engineState, governorState, nowSeconds) {
  *      about. Resets the de-escalation exponent to 0; does NOT restart the
  *      interval, because acting on a wondering is not a reason to go quiet.
  *   `{ type: 'unacted' }`     — an explicit report that a shown wondering was
- *      ignored. Idempotent with `offered`, which already counted it, so it only
- *      matters for a caller that reports fades without reporting offers.
+ *      ignored. It INCREMENTS, exactly as `offered` does, because the caller it
+ *      exists for reports fades and not offers, and for that caller this is the
+ *      only de-escalation signal there is; an idempotent version gave it one
+ *      step and then a flat interval forever (measured 2026-08-28:
+ *      162 -> 162 -> 162 -> 162 s over four fades). The cost is that a caller
+ *      reporting BOTH an offer and its fade counts that wondering twice and so
+ *      de-escalates at 1.8² per wondering. That is deliberate: double-counting
+ *      errs toward silence, and silence is the direction this project always
+ *      chooses. Callers should report one or the other, not both.
  *   `{ type: 'reset' }`       — new document / new session.
  *
  * @param {Object} governorState
@@ -296,7 +393,7 @@ export function governorReducer(governorState, event) {
   }
   if (type === 'unacted') {
     const already = finite(prev.consecutiveUnacted) ? prev.consecutiveUnacted : 0;
-    return { ...prev, consecutiveUnacted: Math.max(1, already) };
+    return { ...prev, consecutiveUnacted: already + 1 };
   }
   if (type === 'reset') {
     return prev.tuning ? { ...initialGovernorState(), tuning: prev.tuning } : initialGovernorState();

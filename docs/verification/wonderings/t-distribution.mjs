@@ -13,7 +13,7 @@
  * threshold all look like tidying and all end with Dot asking what the
  * distribution of Sleep looks like.
  *
- * FIVE GROUPS OF ASSERTION:
+ * SIX GROUPS OF ASSERTION:
  *   A. the module is pure and self-contained, and its thresholds are UNCHANGED
  *   B. the Mammals fixture measures exactly what plan -001 and -002 quote
  *   C. each of the four thresholds is INDEPENDENTLY wired, proven with cases
@@ -21,13 +21,18 @@
  *   D. degenerate columns (blank, constant, single, tiny) yield no NaN and no
  *      tell
  *   E. `tellsFromShape` behaves on the `Attr` shapes the families will hand it
+ *   F. the SPREAD tell is mirror-symmetric and cannot be bought with a
+ *      near-zero mean — the two defects the 2026-08-28 verification found
  *
  * WHY A STUB CANNOT PASS. Four of the arrays below have exactly 12 values and
  * produce four different answers (`[]`, `['spread']`, `['skewed','gap',
  * 'outlier','spread']`, `['gap']`), so nothing keyed on length works. Each
  * threshold has a case that fires it alone and a near-miss case that does not,
  * so no constant, and no three-of-four subset, works. Sign is tested in both
- * directions, so `skew > 1` instead of `|skew| > 1` fails.
+ * directions on ALL FOUR tells, so `skew > 1` instead of `|skew| > 1` fails and
+ * so does `cv > CV_FLOOR` against a signed mean. And group F carries a column
+ * that is flatter than Sleep on skew, gap and max|z| and differs only in
+ * straddling zero: any cv taken against the signed mean fires on it.
  *
  * Dependency-free, node builtins only. Measured 2026-08-28.
  */
@@ -210,21 +215,40 @@ ok(shape(ONE_EACH_END).gapFrac < GAP_FRAC_FLOOR
   'the outlier case really is isolated (no gap, no skew, no spread)',
   JSON.stringify(shape(ONE_EACH_END)));
 
-// SPREAD, alone. Same values shifted by +1: the deviations, and therefore skew,
-// gap and z, are identical — only the mean moves, so only cv changes. A module
-// that fired SPREAD on sd rather than on sd/mean fails the second line.
-const WIDE = [-3, -2, -1, 0, 0, 1, 1, 2, 2, 3, 4, 5];
-const SHIFTED = WIDE.map((v) => v + 1);
-list(tells(WIDE), [TELL_SPREAD], 'cv 2.273 earns SPREAD alone');
-list(tells(SHIFTED), [], 'the same spread about a larger mean (cv 1.137) earns nothing');
-near(shape(WIDE).sd, shape(SHIFTED).sd, 'the shifted case has an identical sd');
+// SPREAD, alone. Eight cases at 0, one pair at +-7 and one at +-20: sd 8.651
+// against a typical MAGNITUDE of 4.5, i.e. cv 1.922, while skew 0, gapFrac
+// 0.325 and max|z| 2.312 all stay under their floors. Shifting every value by
+// +20 leaves the deviations — and therefore skew, gap and z — untouched, and
+// moves only the scale the spread is measured against. A module that fired
+// SPREAD on sd rather than on a ratio fails the second line.
+//
+// A NOTE ON WHY THIS CASE STRADDLES ZERO. It has to. For a one-sided (ratio-
+// scale) column, cv > 1.5 is unreachable while |g1| <= 1, gapFrac <= 0.35 and
+// max|z| <= 2.5 all hold: measured 2026-08-28 by hill-climbing over 8-, 12-,
+// 16- and 20-value non-negative columns, the best attainable cv under those
+// three constraints is ~1.50. On ratio data a large cv always drags a skew, a
+// gap or an outlier along with it, so SPREAD can only be isolated on a column
+// whose values fall either side of zero.
+const SPREAD_ONLY = [-20, -7, 0, 0, 0, 0, 0, 0, 0, 0, 7, 20];
+const SPREAD_SHIFTED = SPREAD_ONLY.map((v) => v + 20);
+list(tells(SPREAD_ONLY), [TELL_SPREAD], 'cv 1.922 earns SPREAD alone');
+list(tells(SPREAD_SHIFTED), [],
+  'the same spread about a typical magnitude of 20 (cv 0.433) earns nothing');
+near(shape(SPREAD_ONLY).sd, shape(SPREAD_SHIFTED).sd, 'the shifted case has an identical sd');
+near(shape(SPREAD_ONLY).cv, 1.9224, 'SPREAD_ONLY cv is 1.922');
+near(shape(SPREAD_SHIFTED).cv, 0.4325, 'SPREAD_SHIFTED cv is 0.433');
+ok(shape(SPREAD_ONLY).gapFrac < GAP_FRAC_FLOOR
+  && Math.abs(shape(SPREAD_ONLY).skew) < SKEW_ABS_FLOOR
+  && shape(SPREAD_ONLY).maxAbsZ < MAX_ABS_Z_FLOOR,
+  'the spread case really is isolated (no gap, no skew, no outlier)',
+  JSON.stringify(shape(SPREAD_ONLY)));
 
 // A stub keyed on array length cannot survive these four: all 12 values.
 eq(col('Mass').length, 12, 'Mass has 12 values');
-eq(WIDE.length, 12, 'the spread-only case has 12 values');
+eq(SPREAD_ONLY.length, 12, 'the spread-only case has 12 values');
 eq(NEARLY_SKEWED.length, 12, 'the near-miss skew case has 12 values');
 eq(col('Sleep').length, 12, 'Sleep has 12 values');
-list([tells(col('Mass')).length, tells(WIDE).length, tells(NEARLY_SKEWED).length,
+list([tells(col('Mass')).length, tells(SPREAD_ONLY).length, tells(NEARLY_SKEWED).length,
   tells(col('Sleep')).length], [4, 1, 0, 0],
   'those four 12-value columns earn 4, 1, 0 and 0 tells respectively');
 
@@ -263,11 +287,20 @@ eq(single.n, 1, 'a single value has n 1');
 noNaN(single, 'a single value produces no NaN');
 list(tells([7]), [], 'a single value earns nothing');
 
-// A mean of exactly 0 is a division by zero, and 1/0 is Infinity, not an error.
+// A mean of exactly 0 used to be a division by zero. cv is measured against the
+// mean ABSOLUTE value, so a zero mean is an ordinary column and not a special
+// case: sqrt(2) / 1.2 = 1.179, comfortably under the floor.
 const zeroMean = shape([-2, -1, 0, 1, 2]);
 eq(zeroMean.mean, 0, 'the zero-mean column really has mean 0');
-eq(zeroMean.cv, null, 'cv is null when the mean is 0 — never Infinity');
+near(zeroMean.cv, Math.SQRT2 / 1.2,
+  'cv is sd / mean|x| — finite at a zero mean, never Infinity and never null');
+ok(zeroMean.cv < CV_FLOOR, 'and it sits under the spread floor', `cv ${zeroMean.cv}`);
 list(tells([-2, -1, 0, 1, 2]), [], 'the zero-mean column earns nothing');
+
+// cv is null only when there is no magnitude at all to divide by.
+eq(shape([0, 0, 0, 0]).cv, null, 'an all-zero column reports cv null');
+noNaN(shape([0, 0, 0, 0]), 'an all-zero column produces no NaN');
+list(tells([0, 0, 0, 0]), [], 'an all-zero column earns nothing');
 
 // Below MIN_TELL_CASES nothing fires, however dramatic the arithmetic looks.
 const TINY = [1, 2, 100];
@@ -325,6 +358,93 @@ const attrs = [
 ];
 list(attrs.map((a) => tellsFromShape(a).join(',')), ['', TELL_GAP, ''],
   'tellsFromShape holds no state between calls');
+
+// The four tells must be sign-blind at the Attr boundary too: a family that
+// computed cv itself, with a signed mean, would hand in a negative one.
+list(tellsFromShape({ n: 12, skew: -2.419, gapFrac: 0.6172, maxAbsZ: 3.0787, cv: -1.9954 }),
+  [TELL_SKEWED, TELL_GAP, TELL_OUTLIER, TELL_SPREAD],
+  'a mirrored Attr — negative skew, negative cv — earns the same four');
+list(tellsFromShape({ n: 12, skew: 0, gapFrac: 0, maxAbsZ: 0, cv: -1.9954 }),
+  [TELL_SPREAD], 'a negative cv on its own still earns SPREAD');
+
+// ---------------------------------------------------------------------------
+// F. the spread tell — mirror-symmetric, and not bought with a zero mean
+// ---------------------------------------------------------------------------
+console.log('\nF. spread — sign symmetry, and no free tell at a near-zero mean');
+console.log('='.repeat(76));
+
+// (1) MIRROR SYMMETRY. Negating a column mirrors its shape; it does not change
+// it. |g1| is unchanged, gapFrac and max|z| are untouched, and how large the
+// spread is relative to the typical magnitude of the values is untouched too.
+// So every column must earn exactly the tells its negation earns.
+//
+// Measured 2026-08-28, before the fix: with cv computed as sd / (signed) mean
+// and compared `cv > CV_FLOOR`, tells(Mass) was
+// ['skewed','gap','outlier','spread'] while tells(-Mass) was
+// ['skewed','gap','outlier'] — SPREAD was the one tell of the four that could
+// tell a column from its own reflection.
+const neg = (name) => col(name).map((v) => -v);
+list(tells(neg('Mass')), tells(col('Mass')),
+  'tells(-Mass) === tells(Mass) — the mirror earns what the original earns');
+list(tells(neg('Mass')), [TELL_SKEWED, TELL_GAP, TELL_OUTLIER, TELL_SPREAD],
+  '  ...and that is still all four, SPREAD included');
+ok(shape(neg('Mass')).mean < 0, '  ...from a column whose mean really is negative',
+  `mean ${shape(neg('Mass')).mean}`);
+near(shape(neg('Mass')).cv, shape(col('Mass')).cv, 'cv itself is mirror-invariant');
+for (const n of NUMERIC) {
+  list(tells(neg(n)), tells(col(n)), `${n}: negating the column earns the same tells`);
+}
+list(tells(SPREAD_ONLY.map((v) => -v)), [TELL_SPREAD], 'the synthetic spread case mirrors too');
+
+// The recorded fixture measurements must survive the change of denominator.
+// Every Mammals numeric is strictly positive, so mean|x| IS the mean there and
+// cv is the same number it has always been.
+for (const n of NUMERIC) {
+  const s = shape(col(n));
+  near(s.cv, s.sd / s.mean, `${n}: cv is still exactly sd/mean for a one-sided column`);
+}
+ok(NUMERIC.every((n) => col(n).every((v) => v > 0)),
+  'every Mammals numeric really is strictly positive');
+
+// (2) NO FREE SPREAD AT A NEAR-ZERO MEAN. FEATURELESS is flatter than Sleep on
+// every one of the other three measures, and its only distinguishing property
+// is that its values fall either side of zero, leaving a mean of 0.01. Under
+// sd / mean that is a cv of 347 and an unconditional spread tell on a column
+// with nothing whatever to look at.
+const FEATURELESS = [-5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.62];
+const flat = shape(FEATURELESS);
+near(flat.mean, 0.01, 'FEATURELESS has a mean of 0.01 — near zero, and not zero');
+ok(Math.abs(flat.skew) < Math.abs(sleep.skew)
+  && flat.gapFrac < sleep.gapFrac
+  && flat.maxAbsZ < sleep.maxAbsZ,
+  'FEATURELESS is flatter than Sleep on skew, gapFrac AND max|z|',
+  `flat ${JSON.stringify([flat.skew, flat.gapFrac, flat.maxAbsZ])} vs `
+  + `sleep ${JSON.stringify([sleep.skew, sleep.gapFrac, sleep.maxAbsZ])}`);
+ok(flat.sd / flat.mean > 300, 'sd / (signed) mean would be over 300 here',
+  `${flat.sd / flat.mean}`);
+near(flat.cv, 1.1522, 'its cv is 1.152 — spread against the typical magnitude, not against ~0');
+list(tells(FEATURELESS), [],
+  'and it earns NOTHING: a near-zero mean does not buy a spread tell');
+
+// The same trap one step further, and the reason `Math.abs(cv)` alone is not
+// the fix: centring Sleep on its own mean leaves a column of identical shape
+// whose mean is -1.2e-15. sd / mean is then -4.5e15, and `Math.abs` of that
+// clears any floor there is.
+const sleepCentred = col('Sleep').map((v) => v - sleep.mean);
+const centred = shape(sleepCentred);
+ok(Math.abs(centred.sd / centred.mean) > 1e12,
+  'centred Sleep has |sd / mean| over 1e12', `${centred.sd / centred.mean}`);
+near(centred.skew, sleep.skew, 'centring leaves skew untouched');
+near(centred.gapFrac, sleep.gapFrac, 'centring leaves gapFrac untouched');
+near(centred.maxAbsZ, sleep.maxAbsZ, 'centring leaves max|z| untouched');
+list(tells(sleepCentred), [], 'so centred Sleep still earns nothing');
+list(tells(sleepCentred), tells(col('Sleep')), '  ...exactly what Sleep itself earns');
+
+// cv is a magnitude ratio, so it can never be negative.
+ok([col('Mass'), col('Sleep'), SPREAD_ONLY, FEATURELESS, sleepCentred,
+  neg('Mass'), [-2, -1, 0, 1, 2], [1, 2, 3, 100]]
+  .every((c) => { const s = shape(c); return s.cv === null || s.cv >= 0; }),
+  'cv is never negative, whatever the sign of the column');
 
 console.log('\n' + '='.repeat(76));
 if (failures) {

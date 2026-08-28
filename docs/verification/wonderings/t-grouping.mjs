@@ -28,7 +28,7 @@ import { MAMMALS, MAMMALS_COLLECTION } from '../../../web/src/demo/fixture.js';
 import {
   role, eta2, separates, separations, groupSizes, cardinality, columnNames,
   GROUP_COUNT_CEILING, MIN_GROUP_SIZE, ETA2_FLOOR, MIN_GROUPS,
-  MIN_SEPARATION_CASES, MIN_SERIAL_KEY_CASES,
+  MIN_SEPARATION_CASES, MIN_SERIAL_KEY_CASES, IDENTIFIER_DISTINCT_FRACTION,
 } from '../../../web/src/analysis/grouping.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -60,6 +60,14 @@ eq(ETA2_FLOOR, 0.30, 'ETA2_FLOOR === 0.30');
 eq(MIN_GROUPS, 2, 'MIN_GROUPS === 2');
 ok(MIN_SEPARATION_CASES >= 4, 'MIN_SEPARATION_CASES >= 4', MIN_SEPARATION_CASES);
 ok(MIN_SERIAL_KEY_CASES >= 4, 'MIN_SERIAL_KEY_CASES >= 4', MIN_SERIAL_KEY_CASES);
+// The identifier rule must be TOLERANT (a near-unique column still names its
+// cases) without swallowing the fixture's 5-distinct-of-6 case, which is a
+// category. That pins the fraction into (5/6, 11/12] = (0.833, 0.917].
+ok(IDENTIFIER_DISTINCT_FRACTION > 5 / 6 && IDENTIFIER_DISTINCT_FRACTION <= 11 / 12,
+  'IDENTIFIER_DISTINCT_FRACTION is in (0.833, 0.917]', IDENTIFIER_DISTINCT_FRACTION);
+ok(IDENTIFIER_DISTINCT_FRACTION < 1,
+  'IDENTIFIER_DISTINCT_FRACTION is NOT exact equality — one blank cannot defeat the rule',
+  IDENTIFIER_DISTINCT_FRACTION);
 
 // --- 2. role() on the real fixture -------------------------------------------
 console.log('\n2. role() on the Mammals fixture (12 cases)');
@@ -73,6 +81,51 @@ for (const n of NUMERICS) {
 eq(cardinality(MAMMALS, 'Mammal'), 12, 'cardinality(Mammal) === 12');
 eq(cardinality(MAMMALS, 'Order'), 7, 'cardinality(Order) === 7');
 eq(cardinality(MAMMALS, 'Diet'), 3, 'cardinality(Diet) === 3');
+
+// --- 2b. one missing name does not stop a column naming its cases ------------
+// The identifier rule is the ONLY thing standing between the wondering families
+// and eta2 = 1.00 on every numeric (see section 5). Under exact equality
+// (`distinct === caseCount`) a single blank cell demotes `Mammal` to a
+// category, at which point 11 groups over 12 cases becomes a legitimate
+// grouping refused only by the group-count ceiling — and the ceiling's refusal
+// says "try a coarser grouping", which is the wrong advice about a name column.
+console.log('\n2b. the identifier rule survives a blank and a duplicate');
+{
+  const blanked = col('Mammal').map((v, i) => (i === 3 ? '' : v));
+  eq(blanked.filter((v) => v !== '').length, 11, 'the blanked column has 11 names left');
+  eq(role('Mammal', blanked, MAMMALS.length), 'identifier',
+    'blanking ONE Mammal name leaves the column an IDENTIFIER (11 of 12 distinct)');
+
+  const rowsBlank = MAMMALS.map((r, i) => (i === 3 ? { ...r, Mammal: '' } : r));
+  for (const n of NUMERICS) {
+    const s = separates(rowsBlank, 'Mammal', n);
+    eq(s.reason, 'identifier',
+      `with one name blank, Mammal x ${n} is still refused as an IDENTIFIER`);
+  }
+  // ...and this is not pedantry: the tautology it protects us from is still here.
+  near(eta2(rowsBlank, 'Mammal', 'Mass'), 1, 1e-9,
+    'because eta2(Mammal, Mass) is still 1.00 over the 11 named cases');
+  ok(separations(rowsBlank).every((s) => s.cat !== 'Mammal'),
+    'and a part-blank Mammal is still never offered as a grouping');
+
+  // A duplicate name is the same kind of near-miss and must be tolerated too.
+  const dupNamed = col('Mammal').map((v, i) => (i === 3 ? col('Mammal')[0] : v));
+  eq(new Set(dupNamed).size, 11, 'the duplicated column has 11 distinct names');
+  eq(role('Mammal', dupNamed, MAMMALS.length), 'identifier',
+    'one repeated name also leaves the column an identifier');
+
+  // The floor, stated as a rule rather than as a fixture accident: 18 of 20 is
+  // an identifier, 17 of 20 is a category.
+  const names20 = Array.from({ length: 20 }, (_, i) => `case-${i}`);
+  eq(role('Name', names20.map((v, i) => (i < 2 ? '' : v)), 20), 'identifier',
+    '18 distinct over 20 cases (0.90) is an identifier');
+  eq(role('Name', names20.map((v, i) => (i < 3 ? '' : v)), 20), 'category',
+    '17 distinct over 20 cases (0.85) is not');
+  // Coverage, not just uniqueness: three names and nine blanks is a category,
+  // however distinct those three are.
+  eq(role('Sparse2', ['a', 'b', 'c', '', '', '', '', '', '', '', '', ''], 12), 'category',
+    '3 distinct over 12 cases stays a category');
+}
 
 // --- 3. role() on synthetics --------------------------------------------------
 console.log('\n3. role() on synthetic columns');

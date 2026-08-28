@@ -304,6 +304,54 @@ eq(governorReducer(acted, { type: 'unacted' }).consecutiveUnacted, 1,
 const saturated = { ...initialGovernorState(), consecutiveUnacted: 50 };
 near(intervalSeconds(saturated), K.MAX_INTERVAL_SEC, 'the interval saturates at its ceiling');
 
+// F4: MP3 through the OTHER door. The header names one caller for `unacted`:
+// "a caller that reports fades without reporting offers". For that caller
+// `unacted` is the ONLY de-escalation signal it ever sends, so MP3 must hold
+// over a run of `unacted` events exactly as it holds over a run of `offered`
+// ones. Asserted against the CONTRACT (each report lengthens the wait), not
+// against whatever the reducer happens to compute.
+let fadeGov = initialGovernorState();
+const fadeCounts = [];
+const fadeIntervals = [];
+for (let i = 0; i < 4; i += 1) {
+  fadeGov = governorReducer(fadeGov, { type: 'unacted' });
+  fadeCounts.push(fadeGov.consecutiveUnacted);
+  fadeIntervals.push(intervalSeconds(fadeGov));
+}
+eq(JSON.stringify(fadeCounts), JSON.stringify([1, 2, 3, 4]),
+  'four fade reports count as four unacted wonderings');
+ok(fadeIntervals[0] < fadeIntervals[1] && fadeIntervals[1] < fadeIntervals[2],
+  'MP3 (fade-only caller): the interval strictly grows across three unacted reports',
+  `got ${fadeIntervals.map((v) => v.toFixed(2)).join(' -> ')}`);
+ok(fadeIntervals[3] >= fadeIntervals[2], 'a fourth fade never shortens the wait',
+  `got ${fadeIntervals[2].toFixed(2)} -> ${fadeIntervals[3].toFixed(2)}`);
+ok(fadeIntervals.every((v) => v <= K.MAX_INTERVAL_SEC + EPS),
+  'fade-driven de-escalation still respects the ceiling');
+// the two doors agree: n fades and n offers put the governor at the same rate
+let offerGov = initialGovernorState();
+for (let i = 0; i < 3; i += 1) offerGov = governorReducer(offerGov, { type: 'offered', at: i });
+let fadeGov3 = initialGovernorState();
+for (let i = 0; i < 3; i += 1) fadeGov3 = governorReducer(fadeGov3, { type: 'unacted' });
+near(intervalSeconds(fadeGov3), intervalSeconds(offerGov),
+  'three fades and three offers de-escalate to the same interval');
+// and the behavioural half: a fade-only caller's offers really do spread apart
+const fadeStall = engine({ lastActionAt: 0, moves: [] });
+let simFade = initialGovernorState();
+const fadeOfferTimes = [];
+let ft = 0;
+for (let i = 0; i < 4; i += 1) {
+  const at = nextOfferAt(fadeStall, simFade, ft);
+  if (at === null) break;
+  fadeOfferTimes.push(at);
+  // a caller that reports the FADE but not the OFFER: it must still slow down.
+  simFade = { ...governorReducer(simFade, { type: 'unacted' }), lastOfferAt: at };
+  ft = at + STEP_SEC;
+}
+const fadeGaps = fadeOfferTimes.slice(1).map((v, i) => v - fadeOfferTimes[i]);
+ok(fadeGaps.length === 3 && fadeGaps[0] < fadeGaps[1] && fadeGaps[1] < fadeGaps[2],
+  'MP3 (fade-only, behavioural): observed gaps between offers strictly grow',
+  `gaps ${fadeGaps.join('s, ')}s at t=${fadeOfferTimes.join(', ')}`);
+
 // ---------------------------------------------------------------------------
 section('G. time is a parameter — no clock is read anywhere');
 // ---------------------------------------------------------------------------
@@ -322,6 +370,44 @@ eq(mismatches, 0, 'shifting every timestamp by 1e6 s changes nothing (121 sample
 eq(activityState({ idleSeconds: K.STALL_IDLE_SEC + 1, recentMoves: [], componentChurn: [] }, 0, K),
   'stalled', 'idleSeconds is honoured as a fallback when lastActionAt is absent');
 
+// G2. THE SILENT FAILURE THIS HEADER ALREADY WARNS ABOUT. If a caller passes
+// `Date.now()`-based timestamps against a `performance.now()`-based clock (or
+// vice versa) every stamp lands in the FUTURE. A window is an interval with two
+// ends; testing only the upper one makes every future stamp "recent", so the
+// mismatch reads as permanent activity instead of failing loudly.
+eq(activityState({ componentChurn: [1e6, 1e6, 1e6, 1e6], lastActionAt: 0 }, 100, K), 'stalled',
+  'churn stamped in the future is not counted as churn');
+eq(activityState(
+  engine({ lastActionAt: 998, moves: moveRing(5, BIG_SHIFT_SEC) }), 1000, K), 'settling',
+'data moves stamped in the future do not read as flow');
+eq(activityState(
+  engine({ lastActionAt: 1000 - K.SETTLED_IDLE_SEC - 5, moves: moveRing(2, BIG_SHIFT_SEC) }), 1000, K),
+'settling', 'a data move stamped in the future does not earn a natural pause');
+// the boundary itself: a stamp exactly at `now` is inside, one strictly after is out
+eq(activityState({ componentChurn: [1000, 1000, 1000, 1000], lastActionAt: 0 }, 1000, K), 'thrashing',
+  'churn stamped exactly at `now` is inside the window');
+eq(activityState({ componentChurn: [1001, 1000, 1000, 1000], lastActionAt: 0 }, 1000, K), 'stalled',
+  'one churn stamp a second in the future drops the count below the gate');
+
+// G3. THE CLOCK MUST NOT BE TOUCHED THROUGH A GETTER. On a real
+// `BehaviorEngine.state`, `idleSeconds` is a defineProperty getter that calls
+// `performance.now()` (`behavior-engine.js:81-82`), so merely READING the
+// property smuggles a clock into a module whose header promises none. A state
+// carrying `lastActionAt` must never reach for it.
+let clockTouches = 0;
+const spyState = {
+  lastActionAt: 900,
+  recentMoves: moveRing(4, 980),
+  componentChurn: [],
+  mood: { sleepy: 0.1 },
+};
+Object.defineProperty(spyState, 'idleSeconds', {
+  get: () => { clockTouches += 1; return 0; }, enumerable: true,
+});
+activityState(spyState, 1000, K);
+shouldOffer(spyState, initialGovernorState(), 1000);
+eq(clockTouches, 0, 'idleSeconds is never read when lastActionAt is present (no clock via getter)');
+
 // ---------------------------------------------------------------------------
 section('H. adjustable — tuning overrides are read from state, not globals');
 // ---------------------------------------------------------------------------
@@ -335,6 +421,49 @@ ok(tunedFirst !== null && tunedFirst <= 5 + STEP_SEC,
 near(intervalSeconds(initialGovernorState()), K.BASE_INTERVAL_SEC,
   'tuning one state does not leak into another');
 eq(K.STALL_IDLE_SEC, GOVERNOR_CONSTANTS.STALL_IDLE_SEC, 'GOVERNOR_CONSTANTS still holds its defaults');
+
+// H2. `governorState.tuning` is written by the DASHBOARD — it is untrusted
+// input, not a constant. The invariant that must survive any value a dashboard
+// can put there is the module's whole purpose: MORE unacted wonderings NEVER
+// means a SHORTER wait. Asserted against the invariant, not against the clamp.
+const invert = { ...initialGovernorState(), consecutiveUnacted: 3, tuning: { DE_ESCALATION_FACTOR: 0.5 } };
+ok(intervalSeconds(invert) >= K.BASE_INTERVAL_SEC - EPS,
+  'a sub-1 de-escalation factor cannot invert de-escalation into escalation',
+  `three unacted wonderings yielded ${intervalSeconds(invert).toFixed(2)}s, shorter than the base ${K.BASE_INTERVAL_SEC}s`);
+
+const HOSTILE_TUNINGS = [
+  { label: 'inverting factor', tuning: { DE_ESCALATION_FACTOR: 0.5 } },
+  { label: 'zero factor', tuning: { DE_ESCALATION_FACTOR: 0 } },
+  { label: 'negative factor', tuning: { DE_ESCALATION_FACTOR: -2 } },
+  { label: 'absurd factor', tuning: { DE_ESCALATION_FACTOR: 1e9 } },
+  { label: 'negative base', tuning: { BASE_INTERVAL_SEC: -100 } },
+  { label: 'zero base', tuning: { BASE_INTERVAL_SEC: 0 } },
+  { label: 'negative ceiling', tuning: { MAX_INTERVAL_SEC: -1 } },
+  { label: 'zero ceiling', tuning: { MAX_INTERVAL_SEC: 0 } },
+  { label: 'all three hostile', tuning: { BASE_INTERVAL_SEC: -5, DE_ESCALATION_FACTOR: 0.1, MAX_INTERVAL_SEC: -9 } },
+  { label: 'non-numeric factor', tuning: { DE_ESCALATION_FACTOR: '0.5' } },
+  { label: 'NaN factor', tuning: { DE_ESCALATION_FACTOR: Number.NaN } },
+  { label: 'infinite factor', tuning: { DE_ESCALATION_FACTOR: Number.POSITIVE_INFINITY } },
+];
+for (const { label, tuning } of HOSTILE_TUNINGS) {
+  const series = [0, 1, 2, 3, 4, 5].map(
+    (n) => intervalSeconds({ ...initialGovernorState(), consecutiveUnacted: n, tuning }));
+  ok(series.every((v) => Number.isFinite(v) && v > 0),
+    `tuning "${label}": every interval is a positive finite number`, `got ${series.join(', ')}`);
+  ok(series.every((v, i) => i === 0 || v >= series[i - 1] - EPS),
+    `tuning "${label}": the interval never SHRINKS as unacted grows`, `got ${series.join(' -> ')}`);
+  ok(series.every((v) => v <= K.MAX_INTERVAL_SEC * 10),
+    `tuning "${label}": the interval stays inside a sane ceiling`, `got ${series.join(', ')}`);
+}
+// an out-of-range activity threshold cannot make a class of student unreachable
+const hostileActivity = { ...initialGovernorState(), tuning: { THRASH_CHURN_COUNT: -1, DORMANT_SLEEPY: -1 } };
+const plainStall = engine({ lastActionAt: 0, moves: [] });
+ok(shouldOffer(plainStall, hostileActivity, 1000).offer,
+  'a negative thrash/dormant threshold cannot silence the governor forever',
+  `reason ${shouldOffer(plainStall, hostileActivity, 1000).reason}`);
+// a tuning key the module does not know is ignored outright
+const stray = { ...initialGovernorState(), tuning: { NOT_A_CONSTANT: 1, __proto__: { BASE_INTERVAL_SEC: 1 } } };
+near(intervalSeconds(stray), K.BASE_INTERVAL_SEC, 'unknown and inherited tuning keys are ignored');
 
 // ---------------------------------------------------------------------------
 section('I. reducer edge cases');

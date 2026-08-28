@@ -38,6 +38,50 @@
  * carries a synthetic case for each; without them a stub that ignored two of
  * the four thresholds would still pass on Mammals.
  *
+ * WHAT `cv` IS MEASURED AGAINST, AND WHY IT CHANGED ON 2026-08-28.
+ * `cv` is `sd / mean(|x|)`, not `sd / mean`. The adversarial verification of
+ * 2026-08-28 (`docs/verification/wonderings/BUILD-VERIFICATION.md`) found two
+ * defects that are one defect: `spread` was the only tell of the four that
+ * could tell a column from its own reflection, and the only one that could be
+ * earned by a column with nothing in it.
+ *
+ *   - MEASURED: `tells(Mass)` was `['skewed','gap','outlier','spread']` while
+ *     `tells(Mass.map(v => -v))` — an identically shaped column — was
+ *     `['skewed','gap','outlier']`, because a negated column has a negative
+ *     mean, hence a negative `sd/mean`, and `cv > 1.5` is false for every
+ *     negative number.
+ *   - MEASURED: a 12-value column flatter than Sleep on all three other
+ *     measures (skew 0.014 vs 0.476, gapFrac 0.101 vs 0.348, max|z| 1.618 vs
+ *     2.109) earned `spread` outright, because its values fall either side of
+ *     zero and its mean is 0.01, making `sd/mean` 347.
+ *
+ * TWO FIXES WERE AVAILABLE and only one of them is a fix. Gating `|cv|` on the
+ * mean being far from zero cannot work: `|sd/mean| > 1.5` IS the statement
+ * `|mean| < sd/1.5`, so the gate contradicts the tell. Restricting `cv` to
+ * strictly one-sided columns cannot work either, because `tellsFromShape` is
+ * contractually given an `Attr` — `{n, skew, gapFrac, maxAbsZ, cv}` — from
+ * which no zero crossing is visible. So the DENOMINATOR changed instead:
+ *
+ *   - For a one-sided column, `mean(|x|)` IS `|mean|`, so `cv` is the textbook
+ *     coefficient of variation exactly where the textbook defines it (ratio
+ *     scale, one sign) — every Mammals numeric, and every recorded measurement
+ *     in the table above, is unchanged.
+ *   - It cannot be driven to zero by cancellation. `mean(|x|)` is 0 only when
+ *     every value is 0, which is a constant column with sd 0 and no tells.
+ *   - It is unchanged by negating the column, so `spread` mirrors like the
+ *     other three.
+ *   - It is BOUNDED: `sd / mean|x| <= max|x| / rms <= sqrt(n)`, where the old
+ *     ratio was unbounded. A column cannot earn `spread` unless its largest
+ *     magnitude is at least 1.5 times its root-mean-square — unless something
+ *     in it really is far out.
+ *
+ * A CONSEQUENCE WORTH KNOWING: on a one-sided column, `spread` cannot fire
+ * ALONE. Measured 2026-08-28 by hill-climbing over 8-, 12-, 16- and 20-value
+ * non-negative columns, the largest cv attainable while |g1| <= 1,
+ * gapFrac <= 0.35 and max|z| <= 2.5 all hold is about 1.50. On ratio data a
+ * large cv always drags a skew, a gap or an outlier along with it, which is why
+ * `t-distribution.mjs`'s spread-only case straddles zero.
+ *
  * WHAT THIS MODULE IS NOT. It does not decide whether a wondering is worth
  * saying — it reports shape, and the Distribution and Ordering families
  * (`web/src/wonderings/families/`) decide. It knows nothing about attribute
@@ -71,9 +115,11 @@ export const GAP_FRAC_FLOOR = 0.35;
  *  small datasets cannot have outliers, and should not be told they do. */
 export const MAX_ABS_Z_FLOOR = 2.5;
 
-/** Unitless ratio sd/mean. > 1.5 means the spread is half again the centre, so
- *  "typical value" has stopped meaning anything. Mass 2.00 clears it and is
- *  the only Mammals attribute that does. */
+/** Unitless ratio sd / mean|x| (see `shape`). > 1.5 means the spread is half
+ *  again the typical MAGNITUDE of the values, so "typical value" has stopped
+ *  meaning anything. Mass 2.00 clears it and is the only Mammals attribute that
+ *  does. Unchanged by the 2026-08-28 change of denominator: every Mammals
+ *  numeric is strictly positive, where mean|x| and mean are the same number. */
 export const CV_FLOOR = 1.5;
 
 /** Cases (non-blank). Below 4, |g1| > 1 is mathematically unreachable and a
@@ -146,9 +192,16 @@ function medianOf(sorted) {
  *
  * Every statistic is `null` — never `NaN`, never a plausible-looking zero —
  * when it is undefined for the input: too few values, or a constant column
- * (sd 0) whose skew and z-scores are 0/0, or a mean of 0 whose cv is a
- * division by zero. Consumers must test `!= null`, exactly as
+ * (sd 0) whose skew and z-scores are 0/0, or an all-zero column whose cv has
+ * no magnitude to divide by. Consumers must test `!= null`, exactly as
  * `web/src/wonderings/contracts.js` says, because `0` is a legitimate skew.
+ *
+ * `cv` is `sd / mean(|x|)` and is therefore never negative and never
+ * `Infinity`; a mean of exactly 0 is an ordinary column here, not a division by
+ * zero. See WHAT `cv` IS MEASURED AGAINST in the file header. `contracts.js`
+ * describes the field as "sd / mean … meaningless when mean is near 0", which
+ * was written before the 2026-08-28 fix and is stale; the two agree on every
+ * one-sided column, which is every column the fixture contains.
  *
  * `gapFrac` and `gapAt` are the exception worth naming: a constant column has
  * range 0, and its largest gap is reported as `gapFrac: 0, gapAt: null` rather
@@ -194,7 +247,10 @@ export function shape(values) {
   // a constant column turns into NaN and a NaN turns into a false tell.
   const skew = sd === 0 ? null : meanOf(v.map((x) => ((x - mean) / sd) ** 3));
   const maxAbsZ = sd === 0 ? null : Math.max(...v.map((x) => Math.abs((x - mean) / sd)));
-  const cv = mean === 0 ? null : sd / mean;
+  // Spread relative to the typical MAGNITUDE, not to the signed mean. See the
+  // WHAT `cv` IS MEASURED AGAINST note in the file header for why.
+  const meanAbs = meanOf(v.map(Math.abs));
+  const cv = meanAbs === 0 ? null : sd / meanAbs;
 
   return { n, mean, sd, median, skew, gapFrac, gapAt, maxAbsZ, cv };
 }
@@ -232,12 +288,12 @@ export function tellsFromShape(s) {
   if (skew !== null && Math.abs(skew) > SKEW_ABS_FLOOR) out.push(TELL_SKEWED);
   if (gapFrac !== null && gapFrac > GAP_FRAC_FLOOR) out.push(TELL_GAP);
   if (maxAbsZ !== null && maxAbsZ > MAX_ABS_Z_FLOOR) out.push(TELL_OUTLIER);
-  // cv > 1.5 already implies a positive mean, since sd >= 0. It does NOT imply
-  // a meaningful cv: a column straddling zero has a near-zero mean and an
-  // arbitrarily large ratio. That is accepted rather than fudged — `mean` is
-  // returned alongside so the caller can judge, and the families render an
-  // interrogative stem, never the number.
-  if (cv !== null && cv > CV_FLOOR) out.push(TELL_SPREAD);
+  // `Math.abs`, like the skew line, and for the same reason: a tell that can
+  // tell a column from its own reflection is not a tell about shape. `shape()`
+  // never returns a negative cv, so this is belt and braces — but a family that
+  // computed sd/mean for itself would hand one in, and before 2026-08-28
+  // `web/src/wonderings/index.js` did exactly that via `shape`.
+  if (cv !== null && Math.abs(cv) > CV_FLOOR) out.push(TELL_SPREAD);
   return out;
 }
 

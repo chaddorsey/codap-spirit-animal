@@ -35,9 +35,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   relationshipObservations, observe as relationshipObserve, FAMILY_NAME as REL_FAMILY,
+  KEY_SEPARATOR as REL_SEP,
 } from '../../../web/src/wonderings/families/relationship.js';
 import {
   secondDimensionObservations, observe as secondDimensionObserve, FAMILY_NAME as SD_FAMILY,
+  KEY_SEPARATOR as SD_SEP,
 } from '../../../web/src/wonderings/families/second-dimension.js';
 
 // ------------------------------------------------------------------ harness
@@ -134,6 +136,18 @@ const EMPTY_SCENE = scene();
 const graph = (id, x, y, { legend = null, dataContext = 'Mammals', plotType = 'graph' } = {}) => ({
   id, plotType, x, y, legend, dataContext,
 });
+/**
+ * A graph in the `Rows` context — the context the synthetic `withPair` and
+ * `IDENT` datasets below use.
+ *
+ * It exists because the default above is `'Mammals'`, and both families filter
+ * graphs to the DATASET's context. Every synthetic-dataset scene written with
+ * the plain `graph()` helper was therefore filtered out before the refusal
+ * under test could run, and asserted `[]` for the wrong reason: the assertion
+ * held whatever the module did. Found 2026-08-28 by mutation — deleting
+ * second-dimension's partner-identifier guard left the suite green.
+ */
+const rowsGraph = (id, x, y, over = {}) => graph(id, x, y, { dataContext: 'Rows', ...over });
 
 /** Every Observation field the contract requires, with its type and range. */
 function shapeErrors(o, family) {
@@ -313,22 +327,142 @@ eq(secondDimensionObservations(M, scene([graph('gc', 'Sleep', null, { dataContex
   'a univariate graph of ANOTHER data context earns nothing here');
 eq(secondDimensionObservations(M, scene([graph('gd', 'Diet', null), graph('gs', 'Speed', null)], ['Diet', 'Speed'])), [],
   'a categorical axis has no pairs, and Speed has no qualifying partner');
-eq(secondDimensionObservations(IDENT, scene([graph('gi', 'Mass', null)], ['Mass'])), [],
+eq(secondDimensionObservations(IDENT, scene([rowsGraph('gi', 'Mass', null)], ['Mass'])), [],
   'an identifier is never offered as the second dimension');
-eq(secondDimensionObservations(withPair({ qualifies: false }), scene([graph('g', 'A', null)], ['A'])), [],
+eq(secondDimensionObservations(withPair({ qualifies: false }), scene([rowsGraph('g', 'A', null)], ['A'])), [],
   'qualifies:false is never overridden');
-eq(secondDimensionObservations(withPair({ n: 3 }), scene([graph('g', 'A', null)], ['A'])), [],
+eq(secondDimensionObservations(withPair({ n: 3 }), scene([rowsGraph('g', 'A', null)], ['A'])), [],
   'fewer than 4 complete rows is not a shape');
-eq(secondDimensionObservations(withPair({ r: null, rho: null }), scene([graph('g', 'A', null)], ['A'])), [],
+eq(secondDimensionObservations(withPair({ r: null, rho: null }), scene([rowsGraph('g', 'A', null)], ['A'])), [],
   'a pair with no coefficient at all earns nothing — Number(null) is 0, and 0 is not evidence');
-eq(secondDimensionObservations(withPair({ r: '', rho: undefined }), scene([graph('g', 'A', null)], ['A'])), [],
+eq(secondDimensionObservations(withPair({ r: '', rho: undefined }), scene([rowsGraph('g', 'A', null)], ['A'])), [],
   '...nor does a blank coefficient');
+// The control for the five refusals above: with everything sound, the SAME
+// scene and the SAME dataset shape DO earn one. Without this, each `[]` above
+// could be the scene being filtered out rather than the refusal firing.
+eq(keysOf(secondDimensionObservations(withPair({}), scene([rowsGraph('g', 'A', null)], ['A']))),
+  ['second-dimension:Rows:B|A'],
+  'CONTROL: the unmodified pair on the same scene DOES earn one, so the five refusals above are real');
 eq(relationshipObservations(withPair({ r: '', rho: undefined }), EMPTY_SCENE), [],
   '...in either family');
 eq(secondDimensionObservations(null, scene([gSleep], ['Sleep'])), [], 'a missing dataset earns nothing');
 eq(secondDimensionObservations(M, null), [], 'a missing scene earns nothing');
 eq(secondDimensionObservations(M, scene([graph('ga', 'Sleep', null), graph('gb', 'Sleep', null)], ['Sleep'])).length, 1,
   'two graphs of the same attribute say it once (de-duplicated by key)');
+
+// ==========================================================================
+// Added 2026-08-28. Each block below closes a hole the verifier proved by
+// mutation: the assertion that used to stand there held whatever the module
+// did, usually because a second guard fired first and masked the one under
+// test. Every block therefore carries its CONTROL — the same input with the
+// tested property removed, which must emit — so the hole cannot silently
+// reopen.
+section('5b. the refusals that were masked (mutation-proved holes)');
+
+// --- refusal 1: a scatter is not a univariate plot -------------------------
+// The old assertion used a Sleep-by-Height scatter, where BOTH names are on
+// screen, so refusal 2 (partner already visible) fired first. Widening
+// `univariateAttr` to accept two filled axes left the suite green. Here the
+// second axis holds `Speed`, which has no qualifying partner, so the only
+// thing standing between this scene and an observation is refusal 1.
+const scatterSpeed = scene([graph('gsc', 'Sleep', 'Speed')], ['Sleep', 'Speed']);
+eq(secondDimensionObservations(M, scatterSpeed), [],
+  'a scatter earns nothing even when its partner Height is OFF screen — two filled axes is not univariate');
+eq(keysOf(secondDimensionObservations(M, scene([graph('gsc', 'Sleep', null)], ['Sleep']))),
+  ['second-dimension:Mammals:Height|Sleep'],
+  'CONTROL: empty the second axis of that same graph and it earns exactly one');
+
+// --- refusal 3: the PARTNER must be pairable ------------------------------
+// The old identifier-partner case used a `Mammals` graph against a `Rows`
+// dataset, so the graph was filtered out before the guard ran.
+const PARTNERS = {
+  context: 'Rows', caseCount: 12,
+  attrs: [
+    { name: 'A', kind: 'numeric', role: 'measure', n: 12 },
+    { name: 'B', kind: 'numeric', role: 'measure', n: 12 },
+    { name: 'Cat', kind: 'categorical', role: 'category', n: 12, cardinality: 3 },
+    { name: 'RowId', kind: 'numeric', role: 'identifier', n: 12, cardinality: 12 },
+  ],
+  pairs: [
+    { a: 'A', b: 'Cat', r: 0.99, rho: 0.99, n: 12, qualifies: true },
+    { a: 'A', b: 'RowId', r: 0.98, rho: 0.98, n: 12, qualifies: true },
+  ],
+  separations: [],
+};
+const onA = scene([rowsGraph('ga', 'A', null)], ['A']);
+eq(secondDimensionObservations(PARTNERS, onA), [],
+  'a categorical partner and an identifier partner are both refused, with nothing else masking it');
+eq(relationshipObservations(PARTNERS, EMPTY_SCENE), [],
+  '...and neither is half of a relationship');
+const PARTNERS_OK = { ...PARTNERS, pairs: [...PARTNERS.pairs, { a: 'A', b: 'B', r: 0.97, rho: 0.97, n: 12, qualifies: true }] };
+eq(keysOf(secondDimensionObservations(PARTNERS_OK, onA)), ['second-dimension:Rows:B|A'],
+  'CONTROL: add a measure partner to the same dataset and scene, and exactly that one is offered');
+
+// --- refusal 3: the PLOTTED attribute must be pairable too ----------------
+eq(secondDimensionObservations(PARTNERS_OK, scene([rowsGraph('gc', 'Cat', null)], ['Cat'])), [],
+  'a categorical on the axis earns nothing, though `A` is its qualifying partner and is off screen');
+eq(secondDimensionObservations(PARTNERS_OK, scene([rowsGraph('gr', 'RowId', null)], ['RowId'])), [],
+  'an identifier on the axis earns nothing either');
+
+// --- the MIN_COMPLETE_PAIRS floor, pinned from BOTH sides -----------------
+// The old assertions only showed that n = 3 is refused, which a floor of 5, 6
+// or 12 also satisfies. Raising the constant from 4 to 5 left the suite green.
+eq(keysOf(relationshipObservations(withPair({ n: 4 }), EMPTY_SCENE)), ['relationship:Rows:A|B'],
+  'relationship: n = 4, exactly at the floor, EARNS');
+eq(relationshipObservations(withPair({ n: 3 }), EMPTY_SCENE), [],
+  'relationship: n = 3, one below the floor, does not');
+eq(keysOf(secondDimensionObservations(withPair({ n: 4 }), scene([rowsGraph('g', 'A', null)], ['A']))),
+  ['second-dimension:Rows:B|A'],
+  'second-dimension: n = 4, exactly at the floor, EARNS');
+eq(secondDimensionObservations(withPair({ n: 3 }), scene([rowsGraph('g', 'A', null)], ['A'])), [],
+  'second-dimension: n = 3, one below the floor, does not');
+
+// --- `dataContext == null` is not this context ----------------------------
+// The cross-family rule decided 2026-08-28: `web/src/scene-model.js:70-75`
+// emits `null` only for a graph with nothing dropped on it, so such a graph
+// shows none of this dataset's attributes. It may not EARN and it may not
+// ANCHOR. It still counts as screen for suppression, which is the deliberate
+// asymmetry both module headers record.
+const NO_CONTEXT_GRAPH = { id: 'gn', plotType: 'graph', x: 'Sleep', y: null, legend: null, dataContext: null };
+eq(secondDimensionObservations(M, scene([NO_CONTEXT_GRAPH], ['Sleep'])), [],
+  'a graph with no stated data context earns no second-dimension wondering');
+const relNoCtx = find(relationshipObservations(M, scene([NO_CONTEXT_GRAPH], ['Sleep'])),
+  'relationship:Mammals:Height|Sleep');
+if (ok(!!relNoCtx, 'the relationship is still emitted — a contextless graph is not evidence against it')) {
+  eq(relNoCtx.scope.componentId, null, '...but it is never used as the anchor');
+  eq(relNoCtx.novelty, 0.75, '...while still counting as screen for novelty (the deliberate asymmetry)');
+}
+
+// --- one key separator, one key pattern -----------------------------------
+eq(REL_SEP, '|', 'relationship.js exports KEY_SEPARATOR = "|"');
+eq(SD_SEP, '|', 'second-dimension.js exports KEY_SEPARATOR = "|"');
+/**
+ * THE STATED PATTERN, identical for all seven families:
+ *   `family ':' context ':' names.join(KEY_SEPARATOR)`
+ * where `names` is the observation's focus attributes in a deterministic
+ * order — sorted for `relationship` (two orderings of one pair are one
+ * wondering), focus order everywhere else. So the check is: three
+ * colon-separated parts, the first two exactly `family` and `dataContext`, and
+ * the third a permutation of `focus` joined by the separator and nothing else.
+ */
+function keyPatternErrors(o, family, sep) {
+  const e = [];
+  const parts = String(o.key).split(':');
+  if (parts.length !== 3) { e.push(`${o.key}: not family:context:names`); return e; }
+  if (parts[0] !== family) e.push(`${o.key}: first part is not the family`);
+  if (parts[1] !== o.dataContext) e.push(`${o.key}: second part is not dataContext`);
+  const names = parts[2].split(sep);
+  if (JSON.stringify([...names].sort()) !== JSON.stringify([...o.focus].sort())) {
+    e.push(`${o.key}: names ${j(names)} are not focus ${j(o.focus)}`);
+  }
+  if (/[~]/.test(o.key)) e.push(`${o.key}: still uses the old '~' separator`);
+  return e;
+}
+const patternBad = [
+  ...relationshipObservations(M, scene([gSleep], ['Sleep'])).flatMap((o) => keyPatternErrors(o, REL_FAMILY, REL_SEP)),
+  ...secondDimensionObservations(M, scene([graph('gp', 'Height', null)], ['Height'])).flatMap((o) => keyPatternErrors(o, SD_FAMILY, SD_SEP)),
+];
+eq(patternBad, [], 'every key from both families matches the one stated pattern');
 
 // ==========================================================================
 section('6. both families read their arguments (anti-stub)');

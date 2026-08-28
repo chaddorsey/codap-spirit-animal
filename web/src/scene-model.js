@@ -39,6 +39,21 @@
  *    and is reported in `staleIds`. Only a SUCCESSFUL list that omits a
  *    component removes it, and only then does it appear in `removedIds`.
  *
+ *    AND THEREFORE, corrected 2026-08-28 after adversarial verification found it
+ *    (`docs/verification/wonderings/BUILD-VERIFICATION.md`, blocking item 5):
+ *    "successful" has to mean WELL-FORMED, not merely "not obviously a
+ *    failure". The original guarded only `list == null` and
+ *    `list.success === false`, then did
+ *    `Array.isArray(list.values) ? list.values : []` — so a reply of `{}`,
+ *    `{success:true}`, `{values:[…]}` or a bare string was treated as
+ *    AUTHORITATIVE and yielded an empty scene, removing every component and
+ *    retiring every visible wondering. That is precisely the failure this
+ *    constraint exists to prevent, reached through the component LIST rather
+ *    than through a component reply. `isWellFormedList()` below is the fix, and
+ *    section D2 of `t-scene.mjs` is the assertion; the three ways a list read
+ *    can teach nothing — LIST_DROPPED, LIST_REFUSED, LIST_MALFORMED — are
+ *    separate `READ_REASONS` so they are discriminable from a console.
+ *
  * 3. `unplottedAttrs` NEEDS THE DATASET'S FULL ATTRIBUTE LIST, WHICH THE SCENE
  *    DOES NOT HAVE. A graph names the three or four attributes it displays and
  *    nothing else; the eight columns of `web/src/demo/fixture.js` are simply not
@@ -114,6 +129,12 @@ const INITIAL_SCENE_VERSION = 0;
  *                   nothing changed and nothing was removed.
  * - `LIST_REFUSED`  CODAP answered `success: false`. Also nothing learned:
  *                   a refusal is not evidence that the components are gone.
+ * - `LIST_MALFORMED` a reply arrived and could not be read as a component list
+ *                   (`{}`, `{success:true}`, `values` absent or not an array, a
+ *                   bare string/number/array). Also nothing learned — see
+ *                   constraint 2. Kept separate from DROPPED and REFUSED
+ *                   because the three have different causes and only the
+ *                   reason string tells them apart in a log.
  * - `SUSPENDED`     a demo is running (`driver.active`); ZERO reads issued.
  */
 export const READ_REASONS = Object.freeze({
@@ -121,8 +142,38 @@ export const READ_REASONS = Object.freeze({
   PARTIAL: 'partial',
   LIST_DROPPED: 'list-dropped',
   LIST_REFUSED: 'list-refused',
+  LIST_MALFORMED: 'list-malformed',
   SUSPENDED: 'suspended',
 });
+
+/**
+ * Is this reply a component list we are entitled to BELIEVE?
+ *
+ * The whole weight of constraint 2 rests here. `componentList` is the sole
+ * authority on existence, so anything this function accepts is authoritative:
+ * a component it omits is removed, and a `values: []` empties the scene. That
+ * makes the DEFAULT dangerous — `Array.isArray(list.values) ? list.values : []`
+ * reads `{}` as "the student deleted everything", which retires every visible
+ * wondering. A reply we cannot parse is not an affirmative observation of
+ * absence; it is a failed read wearing a reply's clothes.
+ *
+ * Deliberately strict, in both directions:
+ * - `success` must be exactly `true`. `{values:[…]}` with no `success` is not a
+ *   CODAP reply shape and we do not guess which half of it to trust.
+ * - `values` must be a real array. `null`, `'nonsense'` and `{}` are not.
+ * - `{success:true, values:[]}` IS well-formed and IS believed. An affirmative
+ *   empty list is exactly how the student deleting their last graph looks, and
+ *   rejecting it would trade this bug for a scene that can never empty.
+ *
+ * @param {unknown} list a reply from `get componentList`, already known non-null.
+ * @returns {boolean}
+ */
+function isWellFormedList(list) {
+  return typeof list === 'object'
+    && !Array.isArray(list)
+    && list.success === true
+    && Array.isArray(list.values);
+}
 
 /** '' , undefined and null all mean "no attribute here" → `null`, never
  *  `undefined`. Families test axes with `=== null`; an absent key would make a
@@ -327,7 +378,10 @@ export async function createSceneModel(deps = {}) {
   const health = {
     reads: 0,          // refresh() calls that actually issued a componentList read
     suspends: 0,       // refresh() calls short-circuited by isSuspended()
-    listFailures: 0,   // componentList replies dropped or refused
+    listFailures: 0,   // componentList reads that taught nothing (the three below)
+    listDropped: 0,    //   ...of those: no reply came
+    listRefusals: 0,   //   ...of those: CODAP answered success:false
+    listMalformed: 0,  //   ...of those: a reply came and could not be parsed
     droppedReplies: 0, // per-component replies dropped, cumulative
     lastReason: null,
     lastStaleIds: [],
@@ -356,14 +410,25 @@ export async function createSceneModel(deps = {}) {
     const list = await safeRead('get', 'componentList');
     if (list == null) {
       health.listFailures++;
+      health.listDropped++;
       return result(false, READ_REASONS.LIST_DROPPED);
     }
-    if (list.success === false) {
+    if (typeof list === 'object' && !Array.isArray(list) && list.success === false) {
       health.listFailures++;
+      health.listRefusals++;
       return result(false, READ_REASONS.LIST_REFUSED);
     }
+    // A reply that arrived but cannot be read is a FAILED READ, not evidence of
+    // absence. Falling through here with `values: []` would empty the scene and
+    // report every component as removed — constraint 2's failure, arriving
+    // through the list instead of through a component reply.
+    if (!isWellFormedList(list)) {
+      health.listFailures++;
+      health.listMalformed++;
+      return result(false, READ_REASONS.LIST_MALFORMED);
+    }
 
-    const items = Array.isArray(list.values) ? list.values : [];
+    const items = list.values;
     // CONCURRENT, never serial — see the header's cost note.
     const replies = await Promise.all(
       items.map((item) => safeRead('get', `component[${item.id}]`)),

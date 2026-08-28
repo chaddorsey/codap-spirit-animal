@@ -400,6 +400,20 @@ export function qualifies(r, n) {
  * `p.qualifies || qualifies(p.rho, p.n)` — `qualifies` is a function of any
  * correlation coefficient and n, not of Pearson specifically.
  *
+ * NAMES ARE DE-DUPLICATED FIRST, in first-seen order. `i < j` guards INDEX
+ * repetition, not NAME repetition, and the difference is not academic:
+ * `correlatePairs(rows, ['Height', 'Height'])` returned
+ * `{a: 'Height', b: 'Height', r: 1, qualifies: true}` — measured 2026-08-28,
+ * `docs/verification/wonderings/BUILD-VERIFICATION.md`. A self-pair is r = 1 by
+ * construction, so it clears the significance floor at every n, outranks every
+ * honest pair in the dataset, and the relationship family would speak it as a
+ * wondering about whether height has anything to do with height. A repeated
+ * name also emitted the SAME real pair twice with `a` and `b` swapped, breaking
+ * the "each unordered pair once" promise above. A caller with a duplicated
+ * attribute name is not a caller doing something exotic — it is a `roles` merge
+ * or a concatenated list — so this is handled here rather than demanded of
+ * every caller.
+ *
  * @param {Array<Object>} rows
  * @param {string[]} numericNames Names of the attributes with kind 'numeric'.
  *   Identifiers and categoricals must already have been excluded by the caller.
@@ -408,10 +422,11 @@ export function qualifies(r, n) {
 export function correlatePairs(rows, numericNames) {
   const out = [];
   if (!Array.isArray(rows) || !Array.isArray(numericNames)) return out;
-  for (let i = 0; i < numericNames.length; i++) {
-    for (let j = i + 1; j < numericNames.length; j++) {
-      const a = numericNames[i];
-      const b = numericNames[j];
+  const names = [...new Set(numericNames)];
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const a = names[i];
+      const b = names[j];
       const p = pearson(rows, a, b);
       if (p === null) continue;
       const s = spearman(rows, a, b);

@@ -331,6 +331,90 @@ check('LINT — 100% of spoken wonderings pass the lint',
   `${spoken.length - dirty.length}/${spoken.length} clean`
     + (dirty.length ? `; first bad: "${dirty[0].wondering.text}"` : ''));
 
+// --- 2b. the register gate, in BOTH directions -----------------------------
+// Added 2026-08-28 at integration, after `BUILD-VERIFICATION.md` findings 1 and
+// 2 moved the accepted set in opposite directions on the same day. A lint can
+// be made to report "100% clean" by accepting everything, so the rate above is
+// only meaningful alongside a fixed set of strings the gate must REFUSE; and
+// finding 1 was a FALSE POSITIVE, so a fixed set it must ACCEPT is needed too.
+// These are literal sentences, not generated ones, on purpose: they are the
+// contract, and they must not move when the phrasings do.
+//
+// The distinguishing property is ASSESSMENT, not the interrogative form. Both
+// halves are quoted verbatim from BUILD-VERIFICATION.md so the record and the
+// assertion cannot drift apart.
+const MUST_ACCEPT = [
+  // finding 1: the most natural phrasing of the Distribution family, one of the
+  // five question types the owner asked for. Refused before the fix.
+  'What does the distribution of mass look like?',
+  'What does the distribution of life span look like?',
+  // the wondering register the whole corpus is written in, as a control: if
+  // these ever fail, the gate has closed on its own output.
+  'What shape does mass make?',
+  'Where do the sleep values pile up?',
+];
+// finding 2: the purest tutor register, which leaked. Each line is a DIFFERENT
+// hole — the "Let's" contraction, two verbs absent from the imperative list,
+// and an inflected statistical term walking through a \b-terminated literal.
+//
+// EACH LINE NAMES THE RULE THAT MUST CATCH IT, and that is not pedantry. The
+// first draft of this check asserted refusal only, and a mutation that reverted
+// `outlier\w*` to `outlier\b` and `means?\b` to `mean\b` — i.e. that put defect
+// 2's vocabulary hole straight back — did NOT fail it: both sentences were
+// still refused, but by the ORDINARY-WORD rule, which flags "outliers" and
+// "means" as unrecognised nouns. Refusal-blind, that check could not tell a
+// working gate from a broken one behind a coincidence. Naming the rule is what
+// makes the mutation fail. It also pins a live coupling: the ordinary-word
+// stop-list and STATISTICAL_VOCABULARY overlap, so a maintainer who adds
+// "outliers" to the stop-list to unblock a phrasing reopens defect 2 silently
+// unless this check is here.
+const MUST_REFUSE = [
+  ["Let's think about mass?", 'second-person / teacher register'],
+  ['Compare mass and life span?', 'imperative opening'],
+  ['Sort by mass?', 'imperative opening'],
+  ['Do the outliers matter here?', 'statistical vocabulary'],
+  // the TRUE positive finding 1 turned on. Relaxing the form rule must not have
+  // cost the §9.2 register trap the rule was written for.
+  ['What does that legend tell us?', 'second-person / teacher register'],
+  ['How do the means of mass compare?', 'statistical vocabulary'],
+];
+const REGISTER_FOCUS = ['Mass', 'LifeSpan', 'Sleep', 'Diet'];
+const wronglyRefused = MUST_ACCEPT
+  .filter((s) => !lintWondering(s, REGISTER_FOCUS).ok);
+const wronglyAccepted = MUST_REFUSE.filter(([s, rule]) => {
+  const r = lintWondering(s, REGISTER_FOCUS);
+  return r.ok || !(r.violations ?? []).includes(rule);
+});
+check('REGISTER-GATE — the lint accepts every question type the owner asked for',
+  wronglyRefused.length === 0,
+  wronglyRefused.length
+    ? `${wronglyRefused.length} wrongly refused, e.g. "${wronglyRefused[0]}" -> `
+      + `${lintWondering(wronglyRefused[0], REGISTER_FOCUS).violations.join(', ')}`
+    : `all ${MUST_ACCEPT.length}, incl. the distribution stem finding 1 refused`);
+check('REGISTER-GATE — and refuses every tutor-register form that leaked, BY THE RIGHT RULE',
+  wronglyAccepted.length === 0,
+  wronglyAccepted.length
+    ? `${wronglyAccepted.length} not caught by the named rule: `
+      + wronglyAccepted.map(([s, rule]) => `"${s}" wanted [${rule}], got `
+        + `[${(lintWondering(s, REGISTER_FOCUS).violations ?? []).join(', ') || 'PASSED'}]`).join('; ')
+    : `all ${MUST_REFUSE.length} refused, each by the rule named for it`);
+
+// --- 2c. one separator, because `key` is three contracts at once -----------
+// BUILD-VERIFICATION.md: comparison/filtering joined focus with `~` and
+// relationship/second-dimension with `|`, in a field the contract declares is
+// simultaneously the dedup key, the novelty key and the phrasing-hash input.
+// Two conventions in one field means two wonderings about the same pair can
+// fail to dedup against each other. Asserted over EVERY key the corpus emits,
+// so a family added later that picks the other separator fails here.
+const strayKeySeps = triples
+  .map((t) => t.observation.key)
+  .filter((k) => typeof k === 'string' && k.includes('~'));
+check('KEY-SEPARATOR — every family joins a compound focus the same way',
+  strayKeySeps.length === 0,
+  strayKeySeps.length
+    ? `${strayKeySeps.length} keys still use "~", e.g. ${strayKeySeps[0]}`
+    : `${triples.length} keys, ${triples.filter((t) => String(t.observation.key).includes('|')).length} compound, all "|"`);
+
 // --- 3. every wondering is about its own focus -----------------------------
 // The lint already refuses a name NOT in focus. This is the other direction:
 // every attribute the observation claims to be about must appear in the

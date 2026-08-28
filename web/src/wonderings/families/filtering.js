@@ -46,6 +46,21 @@
  * module decline. Failing toward silence is the house rule
  * (`web/src/data-moves.js`: prefer UNDER-cheering).
  *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES; the full argument is in `relationship.js`'s header.
+ *
+ *   KEY SEPARATOR IS `'|'`, not the `'~'` this file used until 2026-08-28.
+ *   `contracts.js:142-147` makes `key` the de-duplication key, the novelty key
+ *   and the W2 phrasing-hash input at once, so two families spelling the same
+ *   shape differently is three bugs. `KEY_SEPARATOR` is exported by all seven
+ *   so a test can assert ONE spelling. This family's `focus` is a single name,
+ *   so the separator never actually appears in a key it mints — it is declared
+ *   here anyway, because a family that quietly used a different one the day it
+ *   grew a second focus attribute is exactly how the disagreement started.
+ *
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT — which is what
+ *   `graphsInContext` below already did.
+ *
  * PURITY. `(DatasetModel, SceneModel) => Observation[]` per
  * `web/src/wonderings/contracts.js`. No browser globals, no clock, no
  * randomness, no text. The helpers at the bottom are duplicated in
@@ -65,6 +80,13 @@ const PLOTTED_NOVELTY_PENALTY = 0.8;  // unitless 0..1; fraction of novelty remo
 
 /** The family id written into every Observation this module emits. */
 export const FILTERING_FAMILY = 'filtering';
+
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families (see the header). Exported so a test can assert one
+ * spelling across the seven rather than seven spellings that happen to agree.
+ */
+export const KEY_SEPARATOR = '|';     // literal; the sole join character in Observation.key
 
 /**
  * Filtering observations for one dataset and one scene.
@@ -136,7 +158,7 @@ export function observeFiltering(dataset, scene) {
 function observation(context, focus, evidence, strength, plotted, graphs) {
   return {
     family: FILTERING_FAMILY,
-    key: `${FILTERING_FAMILY}:${context}:${focus.join('~')}`,
+    key: `${FILTERING_FAMILY}:${context}:${focus.join(KEY_SEPARATOR)}`,
     dataContext: context,
     focus,
     evidence,

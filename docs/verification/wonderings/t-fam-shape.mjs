@@ -37,8 +37,16 @@ import { MAMMALS, MAMMALS_COLLECTION } from '../../../web/src/demo/fixture.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { distributionFamily, DISTRIBUTION_FAMILY } from '../../../web/src/wonderings/families/distribution.js';
-import { orderingFamily, ORDERING_FAMILY } from '../../../web/src/wonderings/families/ordering.js';
+import {
+  distributionFamily, DISTRIBUTION_FAMILY, KEY_SEPARATOR as D_SEP,
+} from '../../../web/src/wonderings/families/distribution.js';
+import {
+  orderingFamily, ORDERING_FAMILY, KEY_SEPARATOR as O_SEP,
+} from '../../../web/src/wonderings/families/ordering.js';
+// The single source of the shape arithmetic. Imported here so section I can
+// assert DELEGATION rather than agreement: the families must return what this
+// module returns, not merely something that looks like it.
+import { tellsFromShape, TELL_NAMES } from '../../../web/src/analysis/distribution.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, '..', '..', '..', 'web', 'src', 'wonderings', 'families');
@@ -142,7 +150,7 @@ const speedD = dObs.find((o) => o.focus[0] === 'Speed');
 ok(massD.strength > speedD.strength,
   'distribution strength ranks 4-tell Mass above 1-tell Speed',
   `Mass ${massD.strength} vs Speed ${speedD.strength}`);
-sameSet(massD.evidence.tells, ['skew', 'gap', 'outlier', 'spread'], 'Mass evidence names all four tells');
+sameSet(massD.evidence.tells, ['skewed', 'gap', 'outlier', 'spread'], 'Mass evidence names all four tells');
 sameSet(speedD.evidence.tells, ['gap'], 'Speed evidence names only the gap tell');
 ok(dObs.every((o, i) => i === 0 || dObs[i - 1].strength >= o.strength),
   'distribution output is sorted strongest-first');
@@ -388,8 +396,103 @@ for (const file of ['distribution.js', 'ordering.js']) {
   const src = readFileSync(join(SRC, file), 'utf8');
   const body = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   for (const [re, what] of BANNED) ok(!re.test(body), `${file} contains no ${what}`);
-  ok(!/\bimport\b/.test(body), `${file} imports nothing at runtime (contracts.js is types only)`);
+  // Plan `-002`: the arithmetic lives in exactly ONE place. These two families
+  // must therefore import it, and must import NOTHING ELSE — an import of
+  // contracts.js would make a types-only file a runtime dependency, and an
+  // import of the other family would rebuild the duplicate sideways.
+  const specifiers = [...body.matchAll(/\bfrom\s+'([^']+)'/g)].map((m) => m[1]);
+  sameSet(specifiers, ['../../analysis/distribution.js'],
+    `${file} imports the shape arithmetic from analysis/distribution.js, and nothing else`);
+  // Importing and then re-implementing anyway is the same defect wearing an
+  // import statement. `ordering.js` is the case a behavioural test CANNOT
+  // catch: it claims only the skew and gap tells, and a faithful local copy of
+  // those two agrees with the analysis on every input, so the duplicate is
+  // invisible until somebody changes the analysis. So it is caught here, at the
+  // source: neither family may hold a threshold, or compare a shape field.
+  for (const literal of ['0.35', '2.5', '1.5']) {
+    ok(!body.includes(literal),
+      `${file} does not re-declare the ${literal} threshold — it belongs to analysis/distribution.js`);
+  }
+  ok(!/\battr\.(skew|gapFrac|maxAbsZ|cv)\s*[><]/.test(body)
+    && !/Math\.abs\(\s*attr\.(skew|gapFrac|maxAbsZ|cv)/.test(body),
+    `${file} never compares a shape field itself — it hands the Attr to tellsFromShape`);
 }
+
+// ---------------------------------------------------------------------------
+// I. The arithmetic lives in exactly one place, and the key has one shape
+// ---------------------------------------------------------------------------
+// Added 2026-08-28 after adversarial verification found `families/
+// distribution.js` re-declaring all four thresholds and re-implementing the
+// tell logic (BUILD-VERIFICATION.md, "Contract violations"), and found the
+// seven families disagreeing about the key separator.
+//
+// These assertions are written against the CONTRACT, not against the code: they
+// compare the family's answer to `analysis/distribution.js`'s answer over a
+// battery that includes cases the two copies used to disagree on. A family that
+// re-implements the arithmetic passes only for as long as the copies agree,
+// which is exactly the failure being tested for.
+console.log('\nI. delegation to analysis/distribution.js, and one key separator');
+console.log('='.repeat(76));
+
+const DELEGATION_CASES = [
+  ['four tells at once', quiet({ skew: 3, gapFrac: 0.8, maxAbsZ: 3.2, cv: 4 })],
+  ['no tell at all', quiet()],
+  ['gap only', quiet({ gapFrac: 0.6 })],
+  ['left tail only', quiet({ skew: -2 })],
+  ['outlier only', quiet({ maxAbsZ: 3 })],
+  ['spread only', quiet({ cv: 2 })],
+  // The case the two copies had already drifted on: `families/distribution.js`
+  // compared |cv|, `analysis/distribution.js` compared cv. Whichever rule the
+  // analysis settles on, the family must be reporting THAT one.
+  ['negative cv', quiet({ mean: -100, cv: -2 })],
+  ['negative cv just inside the floor', quiet({ mean: -100, cv: -1.4 })],
+  ['skew exactly on the floor', quiet({ skew: 1 })],
+  ['gapFrac exactly on the floor', quiet({ gapFrac: 0.35 })],
+  ['maxAbsZ exactly on the floor', quiet({ maxAbsZ: 2.5 })],
+  ['negative maxAbsZ (a shape that cannot happen, but must not fire)', quiet({ maxAbsZ: -3.2 })],
+];
+for (const [label, attr] of DELEGATION_CASES) {
+  const want = tellsFromShape(attr);
+  const emitted = distributionFamily(wrap(attr), EMPTY_SCENE);
+  if (want.length === 0) {
+    eq(emitted.length, 0, `distribution delegates: ${label} -> no tell, no observation`);
+  } else if (ok(emitted.length === 1, `distribution delegates: ${label} -> one observation`)) {
+    ok(JSON.stringify(emitted[0].evidence.tells) === JSON.stringify(want),
+      `distribution delegates: ${label} -> evidence.tells is exactly what tellsFromShape said`,
+      `analysis says ${JSON.stringify(want)}, family says ${JSON.stringify(emitted[0].evidence.tells)}`);
+  }
+  // Ordering claims a SUBSET of the same tells, renamed. It must never claim a
+  // tell the analysis did not report, and must never drop one it did report and
+  // that ordering accepts.
+  const ordered = orderingFamily(wrap(attr), EMPTY_SCENE);
+  const wantOrdering = want.filter((t) => t === 'skewed' || t === 'gap')
+    .map((t) => (t === 'skewed' ? 'tail' : 'gap'));
+  eq(ordered.length, wantOrdering.length ? 1 : 0, `ordering delegates: ${label} -> ${wantOrdering.length ? 1 : 0}`);
+  if (ordered.length === 1) {
+    sameSet(ordered[0].evidence.tells, wantOrdering, `ordering delegates: ${label} -> ${JSON.stringify(wantOrdering)}`);
+  }
+}
+// Every tell name a family emits must come from the shared vocabulary. A family
+// that renames one has forked the vocabulary even if the numbers still agree.
+const DIST_TELL_WORDS = new Set(dObs.flatMap((o) => o.evidence.tells));
+ok([...DIST_TELL_WORDS].every((t) => TELL_NAMES.includes(t)),
+  'every distribution tell name is one of analysis/distribution.js TELL_NAMES',
+  `${JSON.stringify([...DIST_TELL_WORDS])} vs ${JSON.stringify(TELL_NAMES)}`);
+
+// The key separator: one spelling, stated, and actually used.
+eq(D_SEP, '|', 'families/distribution.js exports KEY_SEPARATOR = "|"');
+eq(O_SEP, '|', 'families/ordering.js exports KEY_SEPARATOR = "|"');
+eq(D_SEP, O_SEP, 'the two agree');
+let keyBad = null;
+for (const [fam, sep, obs] of [[DISTRIBUTION_FAMILY, D_SEP, dObs], [ORDERING_FAMILY, O_SEP, oObs]]) {
+  for (const o of obs) {
+    // THE STATED PATTERN: family ':' context ':' focus names joined by
+    // KEY_SEPARATOR, and no other separator anywhere in it.
+    if (o.key !== `${fam}:${o.dataContext}:${o.focus.join(sep)}`) keyBad ??= `${o.key} does not spell out focus`;
+    if (o.key.includes('~')) keyBad ??= `${o.key} still uses the old '~' separator`;
+  }
+}
+ok(!keyBad, 'every key is family:context:focus.join(KEY_SEPARATOR)', keyBad ?? '');
 
 // ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(76));

@@ -24,20 +24,29 @@
  * we sort by ___?"*, *"What if we only looked at ___?"*, and so on. Measured
  * 2026-08-28 by running those seven exact strings through this build's lint
  * (reproduce with `node docs/verification/wonderings/t-realize.mjs`, section 6),
- * THREE OF THE SEVEN FAIL it, all on the same rule:
+ * THREE OF THE SEVEN FAIL it:
  *
- *   - *"What does the distribution of mass look like?"* — the second-person
- *     assessment rule matches `what does `, because §9.2's register trap is
- *     exactly the *"What does that legend tell us?"* shape.
  *   - *"What if we sort by mass?"* and *"What if we only looked at diet?"* —
- *     the editorial `we` is banned outright by the same rule. The load-bearing
- *     form of it is *never ask what you cannot hear*, and a panel that says "we"
- *     has cast itself as a person in the room.
+ *     the editorial `we` is banned outright by the second-person rule. The
+ *     load-bearing form of it is *never ask what you cannot hear*, and a panel
+ *     that says "we" has cast itself as a person in the room.
+ *   - *"How do the means of ___ compare?"* — the statistical-vocabulary rule.
  *
- * A fourth is worse than a failure: *"How do the means of ___ compare?"* PASSES,
- * because the statistical-vocabulary rule is `\bmean\b` and the plural blocks
- * the word boundary. Shipping it would be lawyering the gate, so the comparison
- * phrasings below avoid the word entirely.
+ * RE-MEASURED 2026-08-28 after `lint.js` was repaired, and TWO OF THE THREE
+ * CHANGED, so the earlier reading of this section should be treated with the
+ * suspicion a corrected measurement earns. The first measurement was taken
+ * against a lint with two defects `docs/verification/wonderings/BUILD-
+ * VERIFICATION.md` then recorded. It refused *"What does the distribution of
+ * mass look like?"*, because the second-person rule matched the bare `what
+ * does `; that was a FALSE POSITIVE against §9.2's actual register trap
+ * (*"What does that legend tell us?"*, which assesses) and the repaired lint
+ * accepts the distribution stem. And it PASSED *"How do the means of ___
+ * compare?"*, because the vocabulary was `\bmean\b` and the plural blocked the
+ * word boundary; the repaired lint refuses it in both numbers. The count is
+ * unchanged at three of seven, and the design conclusion is unchanged and now
+ * better supported: the comparison phrasings below were written to avoid the
+ * word `mean` in any number on the grounds that passing on a technicality would
+ * be lawyering the gate, and the gate has since closed the technicality.
  *
  * The stems are the FAMILIES' names, in other words, not shippable text. That
  * discovery is the main thing this module contributes: every phrasing below is
@@ -70,6 +79,73 @@
  * this wave. `Observation.key` is the right hash input because `contracts.js`
  * already guarantees it is stable across runs and carries no timestamp, no
  * random value and no scene id.
+ *
+ * WHAT MADE `key` -> text NOT A FUNCTION, AND WHAT FIXED IT. The hash is a
+ * function of `key`, but the SENTENCE is not a function of the hash alone: the
+ * chosen phrasing is filled with the focus names IN FOCUS ORDER. Measured
+ * 2026-08-28 against the shipped corpus
+ * (`docs/verification/wonderings/corpus.txt`): triples 4 and 36 both carry key
+ * `relationship:Mammals:Height|Mass` and both select `rel-story`, and they read
+ * *"Might height and mass be telling one story?"* and *"Might mass and height be
+ * telling one story?"*. `families/relationship.js` SORTS the two names when it
+ * builds the key but orders `focus` by what is on screen, so one key carried two
+ * focus orders and the invariant above was false for every relationship
+ * wondering in the corpus.
+ *
+ * The repair is `orderFocusByKey`: names are spoken in the order their raw
+ * spellings appear inside `key`, and in `focus` order only when `key` does not
+ * name every one of them exactly once. That makes the reading a function of
+ * `key` wherever the key can settle it, and it preserves every ordering a family
+ * DECLARED — `families/second-dimension.js` writes `partner|plotted` into its
+ * key in the same order as `focus` (it calls that asymmetry load-bearing) and
+ * `families/comparison.js` writes `measure` before `category`, so neither is
+ * ever reordered. The only family reordered is the one that sorted its key,
+ * which is exactly the family whose focus order the key had already discarded.
+ *
+ * NOT REPAIRED HERE, AND WHY. `families/filtering.js` leaves `evidence.kind` out
+ * of its key, so an `outlier` and a `subgroup` observation over one attribute
+ * would share a key and read differently. It cannot arise on any dataset —
+ * `outlier` focuses a numeric attribute and `subgroup` a categorical one, and no
+ * attribute is both — and the repair belongs in the key, which this module does
+ * not own.
+ *
+ * TWO KINDS OF HOSTILE NAME. `Observation.family` and every entry of
+ * `Observation.focus` are strings that arrive from CODAP, which means from
+ * whatever the student typed, and both were used as object keys. Measured
+ * 2026-08-28: `realize({family: 'constructor', evidence: {kind: 'keys'}})` THREW
+ * (`PHRASINGS[observation.family][variant].filter is not a function`) because
+ * `PHRASINGS[family]` walks the prototype chain and `hasOwnProperty` guarded
+ * only the variant lookup; and a column named `__proto__` rendered to `proto`
+ * and was spoken — *"What might the shape of proto be hiding?"* — as were
+ * `valueOf` ("value of") and `propertyIsEnumerable`. Both lookups are now
+ * own-property lookups, and any name resolving to a member of `Object.prototype`
+ * is unrenderable: refused, not repaired, because `proto` is not what the column
+ * is called and this module must not guess.
+ *
+ * THE DUPLICATE GUARD COMPARES WHAT IS SPOKEN, NOT WHAT IS STORED. Two distinct
+ * raw names can render to one spoken name: `LifeSpan` and `Life_Span` both
+ * become `life span`; `Mass` and `mass` both become `mass`. Measured 2026-08-28,
+ * the raw-name guard passed both through and produced *"Does life span have
+ * anything to do with life span?"* — the exact sentence the guard's own comment
+ * says must never ship. The comparison is now on the rendered text, case-folded.
+ *
+ * A COLUMN NAME CAN STATE A STATISTIC. `lint.js` bans statistical vocabulary in
+ * the sentence at word boundaries, which is the right rule for the phrasings:
+ * they are fixed, and a human read them. The other half of every sentence is a
+ * column name nobody reviewed, and the lint's terms are written in the forms
+ * PROSE uses, not the forms a column name uses. Measured 2026-08-28: a column
+ * named `Means` produced *"Where do the means values pile up?"* and `Strength`
+ * produced *"Is strength spread evenly, or bunched together?"*, both lint-clean,
+ * because `\bmean\b` misses the plural and `\bstrong\w*\b` does not reach
+ * `strength`. So every name is checked twice here: through `lintWondering`
+ * itself, in a neutral one-name frame — so anything the lint learns later is
+ * inherited without editing this file — and against `STATISTICAL_NAME_WORDS`
+ * below, which carries the lint's own terms in the shapes a column takes. A name
+ * that states a statistic makes the whole wondering unrenderable. The cost is
+ * that a dataset about material `Strength` loses its wonderings; that is the
+ * under-emitting direction this build takes on unknowns everywhere else, and a
+ * suppressed wondering is invisible while a statistic in the panel is a broken
+ * promise.
  *
  * ARITY IS CHECKED, NOT PATCHED. Each phrasing declares how many attribute names
  * it speaks, and only phrasings whose `slots` EQUALS `focus.length` are
@@ -119,6 +195,44 @@ const FNV_PRIME = 0x01000193;
  *  `filtering` has more, and its variants are the two values of
  *  `evidence.kind`. */
 const SINGLE_VARIANT = '*';
+
+/** Characters that families use to join fields inside `Observation.key`: `:`
+ *  between family, context and names, and `|` (relationship, second-dimension)
+ *  or `~` (comparison, filtering, grouping) between the names themselves. Unit:
+ *  literal characters, as a split pattern. This module does not BUILD keys, so
+ *  it must be able to read one it did not write; splitting on all three is the
+ *  whole of that reading, and a key using none of them simply falls back to
+ *  focus order (see `orderFocusByKey`). Kept a superset on purpose — plan `-002`
+ *  records the separator inconsistency as a known defect, and a reader that
+ *  accepts both survives its repair either way. */
+const KEY_FIELD_SEPARATORS = /[:|~]/;
+
+/** Rendered attribute-name WORDS that state a statistic, matched whole and
+ *  case-folded. Unit: complete words of a rendered name, never substrings —
+ *  `model` must not be caught by `mode`, and `meaning` must not be caught by
+ *  `mean`. Every entry is one of `lint.js`'s own statistical terms in a shape a
+ *  COLUMN NAME takes rather than a shape prose takes; this list adds no term the
+ *  lint does not already ban, it only adds morphology (`means`, `strength`,
+ *  `averages`, `deviations`) that a word-boundary rule written for prose cannot
+ *  reach. Names are additionally probed through `lintWondering` itself, so a
+ *  term added to the lint later is inherited here without editing this list. */
+const STATISTICAL_NAME_WORDS = Object.freeze(new Set([
+  'average', 'averages', 'mean', 'means', 'median', 'medians',
+  'correlation', 'correlations', 'correlate', 'correlates', 'correlated',
+  'significance', 'strength', 'strengths', 'strong', 'weak', 'weakness',
+  'deviation', 'deviations', 'sd', 'stdev', 'variance', 'variances',
+  'outlier', 'outliers', 'trend', 'trends', 'trending',
+]));
+
+/** The frame a rendered name is probed in before it may be spoken. Unit: a
+ *  complete candidate wondering, so that `lintWondering` — the only gate this
+ *  module is allowed to consult — judges the NAME on its own. It is deliberately
+ *  the blandest interrogative available and puts the name mid-sentence, so that
+ *  position-sensitive rules (the imperative opening, which is anchored to `^`)
+ *  cannot fire on the frame and cannot fire on a name that is only a problem at
+ *  the start of a sentence — that case is already handled by the retry walk in
+ *  `realize`, which tries the next phrasing. */
+const nameProbe = (rendered) => `what about ${rendered}?`;
 
 /** The `Observation.family` values this module can give words to. Exported so
  *  W3's corpus can assert it covers all seven rather than counting by eye. */
@@ -268,20 +382,90 @@ export function phrasingHash(key) {
   return h >>> 0;
 }
 
+/** Own-property lookup. Every table in this module is indexed by a string that
+ *  came from CODAP, so `table[name]` is a prototype-chain walk with student
+ *  input at the wheel: `PHRASINGS['constructor']` is a function, and indexing it
+ *  again with an own member of `Object` reaches something with no `.filter`. */
+function ownProperty(table, name) {
+  return typeof name === 'string' && Object.prototype.hasOwnProperty.call(table, name)
+    ? table[name]
+    : undefined;
+}
+
+/** Does this name resolve to a member of `Object.prototype`? Computed from the
+ *  prototype itself rather than listed, so it cannot drift as engines add
+ *  members. Covers `__proto__`, `constructor`, `valueOf`, `hasOwnProperty` and
+ *  the rest — every one of which a student may legally type into a column
+ *  header, and none of which may be used as a lookup key or spoken aloud. */
+function isPrototypeMemberName(name) {
+  return typeof name === 'string'
+    && Object.prototype.hasOwnProperty.call(Object.prototype, name);
+}
+
 /**
- * Which phrasing set an observation belongs to, or `null` when it belongs to
+ * The phrasing set an observation belongs to, or `null` when it belongs to
  * none. Only `filtering` has more than one, keyed by `evidence.kind`; an
  * unknown or absent kind is refused rather than defaulted, because the two
  * kinds make opposite claims about what to narrow.
+ *
+ * @param {Object} byVariant the family's own phrasing table
+ * @param {Object} observation
+ * @returns {string|null}
  */
-function variantOf(observation) {
-  const byVariant = PHRASINGS[observation.family];
-  if (!byVariant) return null;
+function variantOf(byVariant, observation) {
   if (Object.prototype.hasOwnProperty.call(byVariant, SINGLE_VARIANT)) return SINGLE_VARIANT;
   const kind = observation.evidence == null ? undefined : observation.evidence.kind;
-  return typeof kind === 'string' && Object.prototype.hasOwnProperty.call(byVariant, kind)
-    ? kind
-    : null;
+  return Array.isArray(ownProperty(byVariant, kind)) ? kind : null;
+}
+
+/**
+ * The order the focus names are SPOKEN in, which must be a function of `key`.
+ *
+ * Names are ordered by where their raw spellings appear inside `key`. A key that
+ * does not name every focus entry exactly once settles nothing, and focus order
+ * stands — that is the normal case for a synthetic key (`relationship:Probe:3`)
+ * and for any family that stops writing names into its key.
+ *
+ * @param {string[]} focus raw names, as the observation carries them
+ * @param {*} key `Observation.key`
+ * @returns {string[]} a NEW array; the observation is never mutated
+ */
+function orderFocusByKey(focus, key) {
+  if (focus.length < 2 || typeof key !== 'string') return focus.slice();
+  const fields = key.split(KEY_FIELD_SEPARATORS);
+  const at = [];
+  for (const raw of focus) {
+    const first = fields.indexOf(raw);
+    if (first === -1 || fields.indexOf(raw, first + 1) !== -1) return focus.slice();
+    at.push(first);
+  }
+  return focus
+    .map((raw, i) => ({ raw, at: at[i] }))
+    .sort((a, b) => a.at - b.at)
+    .map((entry) => entry.raw);
+}
+
+/**
+ * The rendered form of one raw attribute name, or `null` when it is not fit to
+ * put in front of a student. Three ways to fail, in order of how loudly they
+ * fail: it resolves to an `Object.prototype` member (`__proto__` renders to the
+ * plausible-looking `proto`, which is not what the column is called); it states
+ * a statistic in a shape the lint's prose-shaped vocabulary misses (`Means`,
+ * `Strength`); or `lintWondering` itself refuses the bare name — the probe
+ * inherits every rule the lint has now and every rule it gains later.
+ *
+ * @param {string} raw
+ * @returns {string|null}
+ */
+function speakableName(raw) {
+  if (isPrototypeMemberName(raw)) return null;
+  const rendered = renderAttributeName(raw);
+  if (!rendered.readable) return null;
+  for (const word of rendered.text.split(' ')) {
+    if (STATISTICAL_NAME_WORDS.has(word.toLowerCase())) return null;
+  }
+  if (!lintWondering(nameProbe(rendered.text), [raw]).ok) return null;
+  return rendered.text;
 }
 
 /** Sentence-initial capital. The templates are written lowercase throughout, so
@@ -303,44 +487,67 @@ function capitalizeFirst(s) {
  * forward from the hashed index rather than restarting, so a suppression cannot
  * change which phrasing a DIFFERENT observation gets.
  *
+ * The names are spoken in the order `key` puts them in (`orderFocusByKey`), not
+ * in `focus` order, because the invariant is about the key and two observations
+ * can carry one key with their focus arrays in opposite orders.
+ *
  * Refuses (returns `null`) when: the observation is not an object; its `family`
- * has no phrasings; `filtering` carries no usable `evidence.kind`; `focus` is
- * not a non-empty array of distinct non-empty strings; no phrasing speaks
- * exactly `focus.length` names; or every candidate phrasing fails the lint —
- * which is what happens when an attribute name renders unreadably (`Ht_cm`,
- * `msleep`), because there is no repair path and this module must not guess what
- * a column is short for in front of a student.
+ * is not one of `REALIZABLE_FAMILIES`; `filtering` carries no usable
+ * `evidence.kind`; `focus` is not a non-empty array of non-empty strings; two
+ * focus names RENDER to the same spoken name; no phrasing speaks exactly
+ * `focus.length` names; any name is unspeakable (`speakableName` — unreadable
+ * like `Ht_cm` and `msleep`, an `Object.prototype` member like `__proto__`, or a
+ * statistic like `Means`); or every candidate phrasing fails the lint. There is
+ * no repair path in any of these cases: this module must not guess what a column
+ * is short for in front of a student.
  *
  * @param {import('./contracts.js').Observation} observation
  * @returns {{text: string, provenance: Object}|null}
  *   `text` is lint-clean by construction. `provenance` is for the "Dot's mind"
  *   developer panel and the W3 corpus — it carries the evidence, the phrasing
- *   chosen and every phrasing refused along the way, with its violations. NONE
+ *   chosen and every phrasing refused along the way, with its violations.
+ *   `provenance.focus` and `provenance.names` are in SPEAKING order and are
+ *   index-aligned with each other; `provenance.focusAsGiven` is the
+ *   observation's own `focus` order, kept so a reordering is auditable. NONE
  *   of `provenance` may be shown to a student: `provenance.rejected[].text`
  *   holds strings that FAILED the lint, and `evidence` holds the statistics the
  *   voice rule keeps out of the sentence.
  */
 export function realize(observation) {
   if (!observation || typeof observation !== 'object') return null;
-  if (typeof observation.family !== 'string') return null;
 
-  const variant = variantOf(observation);
+  const byVariant = ownProperty(PHRASINGS, observation.family);
+  if (byVariant === undefined) return null;   // unknown family, or a prototype member
+
+  const variant = variantOf(byVariant, observation);
   if (variant === null) return null;
 
-  const focus = Array.isArray(observation.focus) ? observation.focus : null;
-  if (!focus || focus.length === 0) return null;
-  if (!focus.every((f) => typeof f === 'string' && f.trim() !== '')) return null;
-  // Two slots filled with one attribute reads as a sentence about nothing
-  // ("how does mass go with mass?") and is lint-clean, so the lint cannot catch
-  // it. No family emits it; refuse it here so none ever can.
-  if (new Set(focus).size !== focus.length) return null;
+  const given = Array.isArray(observation.focus) ? observation.focus : null;
+  if (!given || given.length === 0) return null;
+  if (!given.every((f) => typeof f === 'string' && f.trim() !== '')) return null;
 
-  const candidates = PHRASINGS[observation.family][variant]
-    .filter((p) => p.slots === focus.length);
+  // The names are spoken in the order the KEY puts them in, so that two
+  // observations sharing a key read identically even when their focus arrays
+  // disagree — see the header. Never mutates `observation.focus`.
+  const focus = orderFocusByKey(given, observation.key);
+
+  const candidates = byVariant[variant].filter((p) => p.slots === focus.length);
   if (candidates.length === 0) return null;   // an attribute in focus with no slot
 
-  const rendered = focus.map((raw) => renderAttributeName(raw));
-  const names = rendered.map((r) => r.text);
+  const names = [];
+  for (const raw of focus) {
+    const spoken = speakableName(raw);
+    if (spoken === null) return null;         // unreadable, hostile, or a statistic
+    names.push(spoken);
+  }
+
+  // Two slots filled with one attribute reads as a sentence about nothing
+  // ("how does mass go with mass?") and is lint-clean, so the lint cannot catch
+  // it. No family emits it; refuse it here so none ever can. The comparison is
+  // on what is SPOKEN: `LifeSpan` and `Life_Span` are two raw names and one
+  // sentence, and it is the sentence the rule is about.
+  const spokenKeys = names.map((n) => n.toLowerCase());
+  if (new Set(spokenKeys).size !== spokenKeys.length) return null;
 
   const hash = phrasingHash(observation.key);
   const start = hash % candidates.length;
@@ -363,6 +570,7 @@ export function realize(observation) {
         key: typeof observation.key === 'string' ? observation.key : null,
         dataContext: observation.dataContext ?? null,
         focus: focus.slice(),
+        focusAsGiven: given.slice(),
         names: names.slice(),
         phrasing: phrasing.id,
         phrasingIndex: index,

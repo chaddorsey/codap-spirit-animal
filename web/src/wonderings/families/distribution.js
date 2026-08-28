@@ -20,17 +20,38 @@
  * worth a second look — a tail, a cluster split, a lone outlier, and spread
  * that swamps the centre. `Mass` fires all four; `Speed` fires only the gap.
  *
- * THE THRESHOLDS ARE DUPLICATED in `families/ordering.js` DELIBERATELY. The two
- * files are separately owned units under the ONE MODULE, ONE FILE, ONE OWNER
- * rule of plan `-002`; neither imports the other, so each can be read, tested
- * and broken on its own. The shared source of truth is the family table in plan
- * `-001` and the gates in `docs/verification/wonderings/distribution-shape.mjs`,
- * not either of these files.
+ * THE THRESHOLDS AND THE TELL ARITHMETIC ARE NOT HERE — corrected 2026-08-28.
+ * This file used to re-declare all four thresholds and re-implement the four
+ * comparisons, importing nothing. Plan `-002` says the arithmetic lives in
+ * exactly ONE place, and it does: `web/src/analysis/distribution.js`, whose
+ * `tellsFromShape` takes exactly the fields an `Attr` already carries (`n`,
+ * `skew`, `gapFrac`, `maxAbsZ`, `cv` — the analysis header says so) and returns
+ * the shared tell vocabulary. The duplicate cost real correctness: the two
+ * copies had already drifted on whether the spread tell is sign-symmetric.
+ * Importing means a fix at the analysis end reaches this family without anybody
+ * remembering that it should. What is left here is what this file is FOR: which
+ * attributes are eligible to be asked about, whether the shape is already on
+ * screen, and how a tell count becomes a `strength`.
+ *
+ * THE TELL NAMES ARE THE ANALYSIS'S. `evidence.tells` now reads
+ * `['skewed', 'gap', 'outlier', 'spread']` — `'skewed'`, not the `'skew'` this
+ * file used to mint — because the vocabulary crosses a module boundary and
+ * there must be one of it. No consumer switches on these strings today; they
+ * are provenance for "Dot's mind".
  *
  * PURITY. `(DatasetModel, SceneModel) => Observation[]`, per the
  * `WonderingFamily` typedef in `../contracts.js`. No I/O, no clock, no
  * randomness, no browser globals. Same inputs, same outputs, forever — which is
- * what makes the W3 corpus reproducible and this module testable in node.
+ * what makes the W3 corpus reproducible and this module testable in node. The
+ * one import is a pure leaf module with the same guarantees.
+ *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES; the full argument is in `relationship.js`'s header.
+ *   KEY SEPARATOR IS `'|'` — see `KEY_SEPARATOR` below.
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT, which is what
+ *   `isDistributionOnScreen` below already required. `web/src/scene-model.js`
+ *   emits `null` only for a graph with nothing dropped on it, and such a graph
+ *   is not a dot plot of anything.
  *
  * THIS MODULE EMITS NO TEXT. An Observation is a claim the data supports; words
  * are the W2 realizer's job (`web/src/wonderings/realize.js`). Nothing here
@@ -38,15 +59,22 @@
  * sentence — the voice rule forbids statistics in the text.
  */
 
+import { tellsFromShape } from '../../analysis/distribution.js';
+
 /** The family name written into every Observation this module emits. */
 export const DISTRIBUTION_FAMILY = 'distribution';
 
-const SKEW_TELL = 1.0;          // unitless Fisher-Pearson g1; |g1| > 1 is the conventional "markedly skewed" line, and is what distribution-shape.mjs measured with
-const GAP_FRAC_TELL = 0.35;     // fraction of the range, 0..1; a gap wider than a third of the range is a cluster split you can see without a computer
-const MAX_ABS_Z_TELL = 2.5;     // standard deviations; below 2.5 a "far" point is unremarkable in 12 cases, above it the eye already found it (Mammals' African Elephant is 2.99)
-const CV_TELL = 1.5;            // unitless sd/mean; above 1.5 the spread swamps the centre, so "typical" stops meaning anything (Mammals' Mass is 2.06)
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families. Exported so a test can assert one spelling across the
+ * seven rather than seven spellings that happen to agree. This family's `focus`
+ * is a single name, so the separator never appears in a key it mints; it is
+ * declared anyway, because a family quietly using a different one the day it
+ * grew a second focus attribute is how the disagreement started.
+ */
+export const KEY_SEPARATOR = '|';   // literal; the sole join character in Observation.key
 
-const MIN_CASES_FOR_SHAPE = 5;  // non-blank cases; below 5 there are at most 4 gaps and skewness is one point's opinion, so shape statistics describe noise. The smallest dataset the tutorials ship is 12.
+const MIN_CASES_FOR_SHAPE = 5;  // non-blank cases; below 5 there are at most 4 gaps and skewness is one point's opinion, so shape statistics describe noise. The smallest dataset the tutorials ship is 12. STRICTER than analysis/distribution.js's MIN_TELL_CASES of 4, deliberately: that is the floor below which a tell is arithmetically impossible, this is the floor below which asking about shape is not worth a student's attention.
 
 const BASE_STRENGTH = 0.45;         // unitless 0..1; one earned tell. Deliberately below 0.5 so a single-tell finding never outranks a two-tell one from another family.
 const STRENGTH_PER_EXTRA_TELL = 0.15; // unitless 0..1 per additional independent tell; four tells reach 0.90 and none reaches 1.0, because certainty is not on offer
@@ -70,24 +98,6 @@ function isShapeable(attr) {
   if (attr.role === 'identifier' || attr.role === 'category') return false;
   if (!Number.isFinite(attr.n) || attr.n < MIN_CASES_FOR_SHAPE) return false;
   return true;
-}
-
-/**
- * Which of the four tells this attribute earns, as stable string labels.
- *
- * Every test is `Number.isFinite` first, which is what disposes of the
- * degenerate cases without special-casing them: an all-identical column has a
- * zero range and a `NaN` gapFrac, and a column whose mean is 0 has an infinite
- * cv. Neither is a tell; both would otherwise compare as `> threshold` or throw
- * the ranking off.
- */
-function tellsFor(attr) {
-  const tells = [];
-  if (Number.isFinite(attr.skew) && Math.abs(attr.skew) > SKEW_TELL) tells.push('skew');
-  if (Number.isFinite(attr.gapFrac) && attr.gapFrac > GAP_FRAC_TELL) tells.push('gap');
-  if (Number.isFinite(attr.maxAbsZ) && Math.abs(attr.maxAbsZ) > MAX_ABS_Z_TELL) tells.push('outlier');
-  if (Number.isFinite(attr.cv) && Math.abs(attr.cv) > CV_TELL) tells.push('spread');
-  return tells;
 }
 
 /**
@@ -140,11 +150,14 @@ export function distributionFamily(dataset, scene) {
   for (const attr of attrs) {
     if (!isShapeable(attr)) continue;
     if (isDistributionOnScreen(scene, context, attr.name)) continue;
-    const tells = tellsFor(attr);
+    // The arithmetic, and only the arithmetic, comes from the analysis module.
+    // An `Attr` carries `n`, `skew`, `gapFrac`, `maxAbsZ` and `cv` under exactly
+    // the names `tellsFromShape` reads, so it is passed straight in.
+    const tells = tellsFromShape(attr);
     if (tells.length === 0) continue;
     out.push({
       family: DISTRIBUTION_FAMILY,
-      key: `${DISTRIBUTION_FAMILY}:${context}:${attr.name}`,
+      key: `${DISTRIBUTION_FAMILY}:${context}:${[attr.name].join(KEY_SEPARATOR)}`,
       dataContext: context,
       focus: [attr.name],
       evidence: evidenceFor(attr, tells),

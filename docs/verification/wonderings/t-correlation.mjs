@@ -306,6 +306,42 @@ ok('correlatePairs tolerates junk arguments',
   && correlatePairs(MAMMALS, []).length === 0);
 
 // ---------------------------------------------------------------------------
+section('a repeated NAME is not a pair');
+
+// The `i < j` loop guards INDEX repetition, not NAME repetition. A caller that
+// passes the same attribute twice — a duplicated CODAP attribute name, a
+// concatenated list, a `roles` merge that kept both entries — got
+// `{a:'Height', b:'Height', r:1, qualifies:true}` back: a tautology that clears
+// the significance floor by construction at any n, and that the relationship
+// and second-dimension families would turn into a wondering about whether
+// height has anything to do with height.
+const SELF = correlatePairs(MAMMALS, ['Height', 'Height']);
+ok('a list of one name repeated yields NO pair at all', SELF.length === 0,
+  JSON.stringify(SELF));
+ok('  ...and it is not merely marked unqualified', SELF.every((p) => p.a !== p.b),
+  JSON.stringify(SELF));
+ok('three copies of one name yield nothing either',
+  correlatePairs(MAMMALS, ['Mass', 'Mass', 'Mass']).length === 0);
+
+// The tautology being guarded is real: r really is 1 and really does qualify.
+ok('a self-correlation really would have been r = 1 and qualifying',
+  pearson(MAMMALS, 'Height', 'Height')?.r === 1 && qualifies(1, 12) === true);
+
+const DUPED = correlatePairs(MAMMALS, ['Height', 'Mass', 'Height']);
+ok('a duplicated name never appears as its own partner', DUPED.every((p) => p.a !== p.b),
+  JSON.stringify(DUPED));
+ok('  ...and the real pair is emitted exactly once, not twice with the names swapped',
+  DUPED.length === 1 && DUPED[0].a === 'Height' && DUPED[0].b === 'Mass',
+  JSON.stringify(DUPED));
+ok('  ...identically to the de-duplicated list, so a caller cannot change the numbers',
+  JSON.stringify(DUPED) === JSON.stringify(correlatePairs(MAMMALS, ['Height', 'Mass'])));
+ok('de-duplication keeps FIRST-SEEN order, so the output stays deterministic',
+  JSON.stringify(correlatePairs(MAMMALS, ['Mass', 'Height', 'Mass']))
+  === JSON.stringify(correlatePairs(MAMMALS, ['Mass', 'Height'])));
+ok('a repeated name does not disturb the rest of the fixture',
+  JSON.stringify(correlatePairs(MAMMALS, [...NUMERIC, NUMERIC[0]])) === JSON.stringify(pairs));
+
+// ---------------------------------------------------------------------------
 section('purity of the module source');
 
 const SOURCE = readFileSync(

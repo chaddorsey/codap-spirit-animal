@@ -10,7 +10,7 @@
  * everything ships a tutor's voice into a child's peripheral vision, and a lint
  * that says `ok` to nothing ships an empty panel that nobody notices is empty.
  *
- * Seven groups of assertion:
+ * Eight groups of assertion:
  *   A. the 13 named cases promoted from the prototype
  *      `docs/verification/wonderings/lint-feasibility.mjs` (2026-08-28) keep
  *      their verdicts exactly.
@@ -28,9 +28,23 @@
  *   E. the suppress-if-unreadable fallback: what rendering cannot save.
  *   F. the two rules bind together in `lintWondering` — an unreadable focus
  *      name, a raw name where the rendering belonged, a name outside `focus`.
+ *   H. the four defects found by adversarial verification on 2026-08-28
+ *      (`BUILD-VERIFICATION.md` §1-§3), each asserted in BOTH DIRECTIONS. Every
+ *      one of the four was a rule that was wrong in one direction; a fix that
+ *      buys a false negative with a false positive is not a fix, so each
+ *      sub-group pairs a phrasing that must FAIL with one that must PASS.
  *   G. hygiene: purity of the source, determinism across repeated calls (a
  *      module-level `/g` regex used with `.test()` would fail this), and the
  *      `ok === violations.length === 0` invariant over every case above.
+ *
+ * MUTATION-TESTED 2026-08-28. Each of group H's four sub-groups was confirmed to
+ * FAIL against the pre-fix code, and each fix was then reverted by hand to
+ * confirm the assertions fail again: re-adding `\bwhat (does|do|can)\b` fails
+ * H1, restoring the fifteen-verb `IMPERATIVE_OPENING` fails all seven of H2,
+ * restoring the `\b`-terminated vocabulary group fails six of H3, and restoring
+ * the `nameShaped` gate fails all three of H4. The escape hatches were mutated
+ * too: dropping `INFLECTED_OPENING`, the focus-name exemption, or `FRAME_WORDS`
+ * each fails the must-PASS side.
  *
  * Dependency-free, node builtins only. Written 2026-08-28.
  */
@@ -266,8 +280,132 @@ eq(lint('Does height matter here?', ['Height', 'Sleep']).violations, [],
 eq(lintWondering(null).violations, ['not a string'], 'a non-string text is refused');
 ok(lintWondering('Does height matter here?', null).ok,
   'a null focus is treated as an empty focus, not a crash');
-ok(lintWondering('Does height matter here?', ['Mass', 7, null]).ok,
+ok(lintWondering('Does mass matter here?', ['Mass', 7, null]).ok,
   'non-string focus entries are ignored, not crashed on');
+
+// ---------------------------------------------------------------------------
+// H. the four defects of 2026-08-28, each asserted in BOTH directions
+//
+//    Recorded in `docs/verification/wonderings/BUILD-VERIFICATION.md` §1-§3.
+//    Every one of them is a rule that was wrong in one direction; a fix that
+//    trades a false positive for a false negative is not a fix, so each
+//    sub-group asserts a phrasing that MUST pass beside the one that MUST fail.
+// ---------------------------------------------------------------------------
+console.log('\nH. the four defects — both directions for every rule touched');
+console.log('='.repeat(76));
+
+// --- H1. the tell is ASSESSMENT, not the interrogative form -----------------
+// `\bwhat (does|do|can)\b` caught "What does that legend tell us?" and the
+// Distribution family's own phrasing with the same stroke. The load-bearing
+// rule (plan `-001` §9.2) is NEVER ASK WHAT YOU CANNOT HEAR: a question the
+// panel could not receive an answer to is a quiz. "What does X look like?"
+// asks about the data; "What does X tell us?" asks the student to report.
+console.log('\n  H1. assessment, not interrogative form');
+
+eq(lint('What does the distribution of mass look like?', ['Mass']).violations, [],
+  'PASS  the Distribution family\'s own stem — asks about the data');
+eq(lint('What do the mass values look like?', ['Mass']).violations, [],
+  'PASS  the same question in the plural');
+eq(lint('What can the shape of mass show here?', ['Mass']).violations, [],
+  'PASS  "what can ... show" with no addressee');
+
+eq(lint('What does that legend tell us?').violations,
+  ['second-person / teacher register'],
+  'FAIL  the register trap — a report addressed to the system');
+eq(lint('What does mass tell us?', ['Mass']).violations,
+  ['second-person / teacher register'],
+  'FAIL  the same trap wearing a legitimate subject');
+eq(lint('What can mass show you?', ['Mass']).violations,
+  ['second-person / teacher register'],
+  'FAIL  "show you" is a report the panel cannot hear');
+
+// --- H2. the purest tutor register ------------------------------------------
+// A 15-verb closed list cannot enumerate the verbs a tutor uses. The
+// discriminating property is grammatical: an imperative opens with a BARE
+// INFINITIVE. So the rule must catch verbs nobody listed, and must NOT catch a
+// participle opening or a sentence that opens by naming its own subject.
+console.log('\n  H2. imperative = bare-infinitive opening, not a verb list');
+
+for (const [text, focus] of [
+  ["Let's think about mass?", ['Mass']],
+  ['Compare mass and life span?', ['Mass', 'LifeSpan']],
+  ['Sort by mass?', ['Mass']],
+  ['Watch how mass moves?', ['Mass']],
+  ['Describe the shape of mass?', ['Mass']],
+  ['Predict what mass does?', ['Mass']],
+  ['Show how mass and life span go together?', ['Mass', 'LifeSpan']],
+]) {
+  const { ok: pass, violations } = lint(text, focus);
+  ok(!pass && violations.includes('imperative opening'),
+    `FAIL  ${JSON.stringify(text)}`, `violations: ${violations.join('; ') || '(none)'}`);
+}
+// "Let's" is "let us" — the first-person-plural address must be seen as well.
+ok(lint("Let's think about mass?", ['Mass']).violations
+  .includes('second-person / teacher register'),
+  '  ... and "Let\'s" is also caught as the contraction of "let us"');
+
+// The other direction: none of these opens with a bare infinitive.
+for (const [text, focus] of [
+  ['Sorted by mass, what comes to the top?', ['Mass']],          // participle
+  ['Grouped by diet, does that picture change?', ['Diet']],      // participle
+  ['Mass: all of a piece, or in clumps?', ['Mass']],             // names its subject
+  ['Life span: all of a piece, or in clumps?', ['LifeSpan']],    // ... in two words
+  ['How does mass compare across diet?', ['Mass', 'Diet']],      // verb, not initial
+  ['Would sorting by mass show something new?', ['Mass']],       // gerund after modal
+  ['What hides in mass until it is sorted?', ['Mass']],
+]) {
+  eq(lint(text, focus).violations, [], `PASS  ${JSON.stringify(text)}`);
+}
+
+// --- H3. statistical vocabulary in the plural -------------------------------
+// Six of twelve alternatives were bare literals inside a `\b`-terminated group,
+// so every inflected form walked through.
+console.log('\n  H3. statistical vocabulary survives inflection');
+
+for (const text of [
+  'Do the outliers matter here?',
+  'Do the means differ?',
+  'Do the medians differ?',
+  'Are the averages the same?',
+  'Are the variances the same?',
+  'Are the trends the same?',
+  'Is the trend the same?',
+  'Is the outlier here?',
+]) {
+  eq(lint(text).violations, ['statistical vocabulary'], `FAIL  ${JSON.stringify(text)}`);
+}
+// The other direction — plain words that merely describe shape are not statistics.
+for (const [text, focus] of [
+  ['Is mass spread evenly, or bunched together?', ['Mass']],
+  ['What shape does mass make?', ['Mass']],
+  ['Where do the mass values pile up?', ['Mass']],
+]) {
+  eq(lint(text, focus).violations, [], `PASS  ${JSON.stringify(text)}`);
+}
+
+// --- H4. the focus rule must see a RENDERED name ----------------------------
+// `renderAttributeName` lowercases every name by design, and the old rule only
+// looked at tokens that were capitalised, underscored, digit-bearing or
+// camelCase — so it could not see a single correctly-rendered name. The probes
+// below use the RENDERED form, which is the only form that ever ships.
+console.log('\n  H4. the focus rule sees lowercase, rendered names');
+
+eq(lint('How does mass go with speed?', ['Mass']).violations,
+  ['names an attribute not in focus (speed)'],
+  'FAIL  a rendered name outside focus is caught');
+eq(lint('Does life span matter for speed too?', ['LifeSpan']).violations,
+  ['names an attribute not in focus (speed)'],
+  'FAIL  ... including beside a two-word rendered name that IS in focus');
+eq(lint('How does mass go with life span?', ['Mass']).violations,
+  ['names an attribute not in focus (life)', 'names an attribute not in focus (span)'],
+  'FAIL  ... and every word of an out-of-focus rendering is named');
+
+eq(lint('How does mass go with life span?', ['Mass', 'LifeSpan']).violations, [],
+  'PASS  the same sentence with the same name IN focus');
+eq(lint('Does mass matter here?', ['Mass']).violations, [],
+  'PASS  frame vocabulary is not mistaken for an attribute name');
+eq(lint('How does mass go with speed?', []).violations, [],
+  'PASS  with no focus declared the rule stands down — it knows no names');
 
 // ---------------------------------------------------------------------------
 // G. hygiene: purity, determinism, invariant

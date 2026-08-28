@@ -30,27 +30,66 @@
  * (both), `Speed` (gap 0.36) — and `Sleep` is not: gap 0.348, skew 0.48. That
  * refusal is the module's most important behaviour.
  *
- * THRESHOLDS ARE DUPLICATED from `families/distribution.js` DELIBERATELY. Under
- * plan `-002`'s ONE MODULE, ONE FILE, ONE OWNER rule these are separately owned
- * units and neither imports the other, so each stands alone. The shared source
- * of truth is the family table in plan `-001` and the gates in
- * `distribution-shape.mjs`, not either of these two files.
+ * THE THRESHOLDS ARE NOT HERE — corrected 2026-08-28. This file used to
+ * re-declare `SKEW_TELL` and `GAP_FRAC_TELL` and re-implement the two
+ * comparisons, on the argument that ONE MODULE, ONE FILE, ONE OWNER made each
+ * family stand alone. That argument was wrong about which thing is the module:
+ * plan `-002` puts the arithmetic in exactly ONE place, and it is
+ * `web/src/analysis/distribution.js`. What is separately owned is the CLAIM —
+ * that sorting reveals hidden structure — and the claim is expressed here, by
+ * accepting only two of the analysis's four tells. `families/distribution.js`
+ * accepts all four; that difference is the whole distinction between the two
+ * families, and it is now the ONLY difference between them.
+ *
+ * THE TELL NAMES ARE THIS FAMILY'S, mapped from the analysis's. The analysis
+ * says `'skewed'` because it is describing a distribution; this family says
+ * `'tail'` because it is describing what a sort would put where. The mapping is
+ * one table, `ORDERING_TELL_NAMES`, and it is also the accept-list: a tell with
+ * no entry is a tell this family does not claim.
  *
  * PURITY. `(DatasetModel, SceneModel) => Observation[]`, per the
  * `WonderingFamily` typedef in `../contracts.js`. No I/O, no clock, no
- * randomness, no browser globals.
+ * randomness, no browser globals. The one import is a pure leaf module with the
+ * same guarantees.
+ *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES; the full argument is in `relationship.js`'s header.
+ *   KEY SEPARATOR IS `'|'` — see `KEY_SEPARATOR` below.
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT, which is what
+ *   `isOrderOnScreen` below already required. `web/src/scene-model.js` emits
+ *   `null` only for a graph with nothing dropped on it, and such a graph is not
+ *   a dot plot of anything.
  *
  * THIS MODULE EMITS NO TEXT — words are the W2 realizer's job, and `evidence`
  * must never reach the sentence.
  */
 
+import { tellsFromShape, TELL_GAP, TELL_SKEWED } from '../../analysis/distribution.js';
+
 /** The family name written into every Observation this module emits. */
 export const ORDERING_FAMILY = 'ordering';
 
-const SKEW_TELL = 1.0;        // unitless Fisher-Pearson g1; |g1| > 1 is the conventional "markedly skewed" line, and is what distribution-shape.mjs measured with
-const GAP_FRAC_TELL = 0.35;   // fraction of the range, 0..1; a gap wider than a third of the range becomes two visible blocks of rows once sorted
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families. Exported so a test can assert one spelling across the
+ * seven rather than seven spellings that happen to agree. This family's `focus`
+ * is a single name, so the separator never appears in a key it mints; it is
+ * declared anyway, for the same reason `families/distribution.js` declares it.
+ */
+export const KEY_SEPARATOR = '|';   // literal; the sole join character in Observation.key
 
-const MIN_CASES_FOR_SHAPE = 5; // non-blank cases; below 5 there are at most 4 gaps and skewness is one point's opinion. Sorting 4 rows reveals nothing that reading them does not.
+/**
+ * The analysis tells this family claims, mapped to the words it uses for them.
+ * ALSO the accept-list: `outlier` and `spread` are absent on purpose, and their
+ * absence is the module's whole argument (see the header). A `Map` rather than
+ * an object literal so a tell named `__proto__` could never reach a prototype.
+ */
+const ORDERING_TELL_NAMES = new Map([
+  [TELL_GAP, 'gap'],      // sorting puts the clusters either side of the gap into adjacent blocks of rows
+  [TELL_SKEWED, 'tail'],  // sorting collects the long tail at one end, where it reads as a run rather than as scattered large numbers
+]);
+
+const MIN_CASES_FOR_SHAPE = 5; // non-blank cases; below 5 there are at most 4 gaps and skewness is one point's opinion. Sorting 4 rows reveals nothing that reading them does not. STRICTER than analysis/distribution.js's MIN_TELL_CASES of 4, deliberately: that is where a tell becomes arithmetically possible, this is where sorting becomes worth a student's attention.
 
 const BASE_STRENGTH = 0.45;          // unitless 0..1; one earned tell, matching the distribution family so the two rank against each other on the same scale
 const STRENGTH_PER_EXTRA_TELL = 0.20; // unitless 0..1; only two tells exist here, so the second is worth more than it is in the four-tell distribution family
@@ -76,17 +115,26 @@ function isSortable(attr) {
 }
 
 /**
- * The two tells that support the ordering claim, as stable string labels.
+ * The tells that support the ordering claim, in this family's words.
  *
- * `Number.isFinite` first, which is what disposes of the degenerate columns
- * without special-casing them: an all-identical column has a zero range and so
- * a `NaN` gapFrac, and a constant column has an undefined skew.
+ * The measuring is `tellsFromShape`'s: an `Attr` carries `n`, `skew`, `gapFrac`,
+ * `maxAbsZ` and `cv` under exactly the names it reads, and it is what disposes
+ * of the degenerate columns without special-casing them — an all-identical
+ * column has a zero range and so a `NaN` gapFrac, and a constant column has an
+ * undefined skew. The filtering is this family's: only `gap` and `tail` are
+ * claims about ORDER.
+ *
+ * Reported in `TELL_NAMES` order (`tail` before `gap`), which is the analysis's
+ * order rather than this file's former one. `evidence.tells` is provenance for
+ * "Dot's mind" and nothing switches on the order.
  */
 function tellsFor(attr) {
-  const tells = [];
-  if (Number.isFinite(attr.gapFrac) && attr.gapFrac > GAP_FRAC_TELL) tells.push('gap');
-  if (Number.isFinite(attr.skew) && Math.abs(attr.skew) > SKEW_TELL) tells.push('tail');
-  return tells;
+  const out = [];
+  for (const tell of tellsFromShape(attr)) {
+    const word = ORDERING_TELL_NAMES.get(tell);
+    if (word !== undefined) out.push(word);
+  }
+  return out;
 }
 
 /**
@@ -140,7 +188,7 @@ export function orderingFamily(dataset, scene) {
     if (tells.length === 0) continue;
     out.push({
       family: ORDERING_FAMILY,
-      key: `${ORDERING_FAMILY}:${context}:${attr.name}`,
+      key: `${ORDERING_FAMILY}:${context}:${[attr.name].join(KEY_SEPARATOR)}`,
       dataContext: context,
       focus: [attr.name],
       evidence: evidenceFor(attr, tells),

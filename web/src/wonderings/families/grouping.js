@@ -40,6 +40,32 @@
  * module declines. Failing toward silence is the house rule
  * (`web/src/data-moves.js`: prefer UNDER-cheering).
  *
+ * WHERE EACH RE-CHECK LIVES, corrected 2026-08-28. The structural guards are
+ * ATTRIBUTE-level and the statistical ones are SEPARATION-level, and this file
+ * used to apply the attribute-level ones twice: once in `candidates` / `shown`
+ * inside `observeGrouping`, and again inside `qualifying`. The second copy was
+ * unreachable — `bestSeparation` only ever sees a `sep` whose `cat` came from
+ * `candidates` and whose `num` is in `shown` — so it was dead code claiming to
+ * be load-bearing, which is worse than either. It is gone. The identifier rule,
+ * the kind rule, the cardinality range and the smallest-group floor are now
+ * enforced in exactly ONE place each, on the attributes, before any separation
+ * is looked at; `qualifying` holds only what lives on the separation itself.
+ * `candidates` is taken from `byName.values()` rather than from `attrs` so that
+ * the object `candidates` cleared is provably the same object `byName` returns
+ * even when a malformed dataset repeats an attribute name.
+ *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES; the full argument is in `relationship.js`'s header.
+ *
+ *   KEY SEPARATOR IS `'|'`, not the `'~'` this file used until 2026-08-28.
+ *   `contracts.js:142-147` makes `key` the de-duplication key, the novelty key
+ *   and the W2 phrasing-hash input at once, so two families spelling the same
+ *   shape differently is three bugs. `KEY_SEPARATOR` is exported by all seven
+ *   so a test can assert ONE spelling.
+ *
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT — which is what
+ *   `graphsInContext` below already did.
+ *
  * PURITY. `(DatasetModel, SceneModel) => Observation[]` per
  * `web/src/wonderings/contracts.js`. No browser globals, no clock, no
  * randomness, no text. The helpers at the bottom are duplicated in
@@ -55,6 +81,13 @@ const PLOTTED_NOVELTY_PENALTY = 0.8;  // unitless 0..1; fraction of novelty remo
 
 /** The family id written into every Observation this module emits. */
 export const GROUPING_FAMILY = 'grouping';
+
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families (see the header). Exported so a test can assert one
+ * spelling across the seven rather than seven spellings that happen to agree.
+ */
+export const KEY_SEPARATOR = '|';     // literal; the sole join character in Observation.key
 
 /**
  * Grouping observations for one dataset and one scene.
@@ -73,8 +106,9 @@ export const GROUPING_FAMILY = 'grouping';
  * Declines, in full: no `separations`; no graph in this data context; a graph
  * with no numeric on an axis; the categorical already on that graph's x, y or
  * legend; `qualifies !== true`; eta2 below the floor; group count outside
- * `[2, 4]`; smallest group under 3; the attribute missing from `attrs` (the
- * identifier rule cannot be checked, so the answer is no); or an identifier.
+ * `[2, 4]`; smallest group under 3; the attribute missing from `attrs` (it
+ * matches no candidate and no shown measure, so the identifier rule cannot be
+ * checked and the answer is no); or an identifier.
  *
  * @param {import('../contracts.js').DatasetModel} dataset
  * @param {import('../contracts.js').SceneModel} [scene]
@@ -92,9 +126,13 @@ export function observeGrouping(dataset, scene) {
   if (!graphs.length) return [];                       // "that" has no referent
   const plotted = plottedNames(graphs);
 
-  // Candidate groupers, filtered once on everything knowable from `attrs` alone.
-  const candidates = attrs.filter((a) => a && typeof a.name === 'string'
-    && a.kind === 'categorical'
+  // Candidate groupers, filtered ONCE on everything knowable from `attrs`
+  // alone: this is the sole enforcement of the identifier rule, the kind rule,
+  // the cardinality range and the smallest-group floor for the categorical.
+  // Taken from `byName.values()` rather than from `attrs` so that the object
+  // cleared here is provably the same object `byName.get(sep.cat)` returns,
+  // even if a malformed dataset repeats a name.
+  const candidates = [...byName.values()].filter((a) => a.kind === 'categorical'
     && !isIdentifier(a, caseCount)
     && !(Number.isFinite(a.cardinality)
       && (a.cardinality < MIN_GROUP_COUNT || a.cardinality > GROUP_COUNT_CEILING))
@@ -102,13 +140,15 @@ export function observeGrouping(dataset, scene) {
 
   const best = new Map();   // cat name -> { sep, graph }
   for (const g of graphs) {
+    // The sole enforcement of the kind and identifier rules for the MEASURE: a
+    // separation is only ever considered against a name that survived here.
     const shown = [g.x, g.y].filter((n) => typeof n === 'string' && byName.get(n)?.kind === 'numeric'
       && !isIdentifier(byName.get(n), caseCount));
     if (!shown.length) continue;                       // nothing on the axes to group
     const occupied = new Set([g.x, g.y, g.legend].filter((n) => typeof n === 'string'));
     for (const cat of candidates) {
       if (occupied.has(cat.name)) continue;            // already grouped by it
-      const sep = bestSeparation(separations, cat.name, shown, byName, caseCount);
+      const sep = bestSeparation(separations, cat.name, shown);
       if (!sep) continue;
       const prev = best.get(cat.name);
       if (!prev || sep.eta2 > prev.sep.eta2) best.set(cat.name, { sep, graph: g });
@@ -120,7 +160,7 @@ export function observeGrouping(dataset, scene) {
     const focus = [name];
     out.push({
       family: GROUPING_FAMILY,
-      key: `${GROUPING_FAMILY}:${context}:${focus.join('~')}`,
+      key: `${GROUPING_FAMILY}:${context}:${focus.join(KEY_SEPARATOR)}`,
       dataContext: context,
       focus,
       evidence: {
@@ -145,32 +185,35 @@ export function observeGrouping(dataset, scene) {
  * THIS graph: `Diet` separating an attribute nobody is looking at would not make
  * "that" look like anything.
  */
-function bestSeparation(separations, cat, shown, byName, caseCount) {
+function bestSeparation(separations, cat, shown) {
   let best = null;
   for (const sep of separations) {
     if (!sep || sep.cat !== cat || typeof sep.num !== 'string') continue;
     if (!shown.includes(sep.num)) continue;
-    if (!qualifying(sep, byName, caseCount)) continue;
+    if (!qualifying(sep)) continue;
     if (!best || sep.eta2 > best.eta2 || (sep.eta2 === best.eta2 && sep.num < best.num)) best = sep;
   }
   return best;
 }
 
-/** Every gate that lives on the separation itself, plus the identifier rule. */
-function qualifying(sep, byName, caseCount) {
+/**
+ * Every gate that lives ON THE SEPARATION ITSELF, and only those.
+ *
+ * The attribute-level rules — identifier, kind, cardinality range, smallest
+ * group — are NOT re-checked here. They are enforced once, on the attributes,
+ * by `candidates` and `shown` in `observeGrouping`, and every `sep` that
+ * reaches this function has already been matched against both. A second copy
+ * here was unreachable; see the header. `groups` and `smallestGroup` are
+ * checked because they are the SEPARATION's own report of the split, which a
+ * disagreeing analysis could state differently from the attribute's
+ * `cardinality` and `groupSizes`.
+ */
+function qualifying(sep) {
   if (sep.qualifies !== true) return false;
   if (!Number.isFinite(sep.eta2) || sep.eta2 < ETA2_FLOOR) return false;
   if (!Number.isFinite(sep.groups)) return false;
   if (sep.groups < MIN_GROUP_COUNT || sep.groups > GROUP_COUNT_CEILING) return false;
   if (!Number.isFinite(sep.smallestGroup) || sep.smallestGroup < MIN_GROUP_SIZE) return false;
-  const cat = byName.get(sep.cat);
-  const num = byName.get(sep.num);
-  if (!cat || !num) return false;                      // unverifiable => refused
-  if (cat.kind !== 'categorical' || num.kind !== 'numeric') return false;
-  if (isIdentifier(cat, caseCount) || isIdentifier(num, caseCount)) return false;
-  if (Number.isFinite(cat.cardinality)
-      && (cat.cardinality < MIN_GROUP_COUNT || cat.cardinality > GROUP_COUNT_CEILING)) return false;
-  if (smallestGroupSize(cat) !== null && smallestGroupSize(cat) < MIN_GROUP_SIZE) return false;
   return true;
 }
 

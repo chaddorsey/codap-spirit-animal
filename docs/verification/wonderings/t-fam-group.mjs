@@ -29,9 +29,20 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { MAMMALS, MAMMALS_COLLECTION } from '../../../web/src/demo/fixture.js';
-import { observeComparison, COMPARISON_FAMILY } from '../../../web/src/wonderings/families/comparison.js';
-import { observeGrouping, GROUPING_FAMILY } from '../../../web/src/wonderings/families/grouping.js';
-import { observeFiltering, FILTERING_FAMILY } from '../../../web/src/wonderings/families/filtering.js';
+import { observeComparison, COMPARISON_FAMILY, KEY_SEPARATOR } from '../../../web/src/wonderings/families/comparison.js';
+import { observeGrouping, GROUPING_FAMILY, KEY_SEPARATOR as GRP_SEP } from '../../../web/src/wonderings/families/grouping.js';
+import { observeFiltering, FILTERING_FAMILY, KEY_SEPARATOR as FLT_SEP } from '../../../web/src/wonderings/families/filtering.js';
+// The other four families, imported for one assertion only: the key separator
+// is a CROSS-family contract, and this is the one test that can see all seven
+// at once. `contracts.js:142-147` makes `key` the de-duplication key, the
+// novelty key and the W2 phrasing-hash input simultaneously, so two families
+// spelling it differently is three bugs. Verification 2026-08-28 found exactly
+// that: comparison and filtering joined with `'~'`, relationship and
+// second-dimension with `'|'`.
+import { KEY_SEPARATOR as DIS_SEP } from '../../../web/src/wonderings/families/distribution.js';
+import { KEY_SEPARATOR as ORD_SEP } from '../../../web/src/wonderings/families/ordering.js';
+import { KEY_SEPARATOR as REL_SEP } from '../../../web/src/wonderings/families/relationship.js';
+import { KEY_SEPARATOR as SD_SEP } from '../../../web/src/wonderings/families/second-dimension.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, '..', '..', '..', 'web', 'src', 'wonderings', 'families');
@@ -185,10 +196,10 @@ console.log('='.repeat(76));
 const cmp = observeComparison(MODEL, EMPTY_SCENE);
 eq(cmp.length, 4, 'comparison emits 4 observations (one per qualifying measure)');
 deepEq(keys(cmp), [
-  'comparison:Mammals:Sleep~Diet',
-  'comparison:Mammals:Speed~Diet',
-  'comparison:Mammals:Height~Diet',
-  'comparison:Mammals:Mass~Diet',
+  'comparison:Mammals:Sleep|Diet',
+  'comparison:Mammals:Speed|Diet',
+  'comparison:Mammals:Height|Diet',
+  'comparison:Mammals:Mass|Diet',
 ], 'comparison keys, strongest first');
 near(cmp[0].strength, 0.82, 'strongest comparison is Sleep, strength = eta2 = 0.82');
 near(cmp[3].strength, 0.31, 'weakest comparison is Mass, strength = eta2 = 0.31');
@@ -303,7 +314,7 @@ const legendScene = scene([{ id: 'g2', plotType: 'dotPlot', x: 'Mass', y: null, 
 eq(observeGrouping(MODEL, legendScene).length, 0,
   'grouping declines when the graph is already grouped by that categorical');
 const cmpLegend = observeComparison(MODEL, legendScene);
-ok(!cmpLegend.some((o) => o.key === 'comparison:Mammals:Mass~Diet'),
+ok(!cmpLegend.some((o) => o.key === 'comparison:Mammals:Mass|Diet'),
   'comparison suppresses a pair already shown together (Mass by Diet legend)');
 eq(cmpLegend.length, 3, 'the other three comparisons survive');
 
@@ -321,7 +332,7 @@ const twoGraphs = scene([
   { id: 'gB', plotType: 'dotPlot', x: 'Diet', y: null, legend: null, dataContext: 'Mammals' },
 ]);
 const cmpTwo = observeComparison(MODEL, twoGraphs);
-const sleepTwo = cmpTwo.find((o) => o.key === 'comparison:Mammals:Sleep~Diet');
+const sleepTwo = cmpTwo.find((o) => o.key === 'comparison:Mammals:Sleep|Diet');
 ok(!!sleepTwo, 'two attributes on two SEPARATE graphs are not "shown together"');
 near(sleepTwo?.novelty, 0.2, 'but both being on screen drops novelty to 0.2');
 eq(sleepTwo?.scope.componentId, 'gA', 'comparison anchors to the graph showing its measure');
@@ -329,9 +340,9 @@ eq(observeGrouping(MODEL, twoGraphs).length, 1, 'grouping earns Diet from the Sl
 eq(observeGrouping(MODEL, twoGraphs)[0].scope.componentId, 'gA', 'and anchors to that dot plot');
 
 const cmpScatter = observeComparison(MODEL, SCATTER_SCENE);
-near(cmpScatter.find((o) => o.key === 'comparison:Mammals:Mass~Diet')?.novelty, 0.6,
+near(cmpScatter.find((o) => o.key === 'comparison:Mammals:Mass|Diet')?.novelty, 0.6,
   'novelty 0.6 when one of the two named attributes is on screen');
-near(cmpScatter.find((o) => o.key === 'comparison:Mammals:Height~Diet')?.novelty, 1,
+near(cmpScatter.find((o) => o.key === 'comparison:Mammals:Height|Diet')?.novelty, 1,
   'novelty 1 when neither is');
 const fltScatter = observeFiltering(MODEL, SCATTER_SCENE);
 eq(fltScatter.find((o) => o.key === 'filtering:Mammals:Mass')?.scope.componentId, 'g1',
@@ -440,7 +451,7 @@ for (const o of ALL) {
   if (o.dataContext !== 'Mammals') why('bad dataContext');
   if (!Array.isArray(o.focus) || !o.focus.length) why('bad focus');
   if (!o.focus.every((n) => names.has(n))) why('focus names an attribute not in the dataset');
-  if (o.key !== o.family + ':Mammals:' + o.focus.join('~')) why('key does not spell out focus');
+  if (o.key !== o.family + ':Mammals:' + o.focus.join(KEY_SEPARATOR)) why('key does not spell out focus');
   if (!o.evidence || typeof o.evidence !== 'object' || !Object.keys(o.evidence).length) why('bad evidence');
   if (!(o.strength >= 0 && o.strength <= 1)) why('strength out of range');
   if (!(o.novelty >= 0 && o.novelty <= 1)) why('novelty out of range');
@@ -510,6 +521,140 @@ eq(observeFiltering(idByCard, EMPTY_SCENE).length, 0,
 const noZ = outlierModel(4, 12);
 delete noZ.attrs[0].maxAbsZ;
 eq(observeFiltering(noZ, EMPTY_SCENE).length, 0, 'an attribute with no maxAbsZ earns nothing');
+
+// ---------------------------------------------------------------------------
+// G. The identifier rule where it is the ONLY guard
+// ---------------------------------------------------------------------------
+// Added 2026-08-28. Section B tests the identifier rule only through `Mammal`,
+// where `groups === 12` is over the ceiling and `smallestGroup === 1` is under
+// the floor — so two other guards refuse it first and deleting the identifier
+// check entirely left the suite green. These cases are built so that EVERY
+// other gate passes and `role`/`cardinality` is the single thing standing
+// between the input and an observation.
+console.log('\nG. the identifier rule, unmasked');
+console.log('='.repeat(76));
+
+/**
+ * 3 groups of 3, eta2 0.5, smallest group 3 — a separation that clears every
+ * numeric gate this family has. `over` corrupts exactly one attribute.
+ */
+function honestSynth({ catOver = {}, numOver = {}, caseCount = 9 } = {}) {
+  return {
+    context: 'Synth', caseCount, pairs: [],
+    attrs: [
+      { name: 'Cat', kind: 'categorical', role: 'category', n: 9,
+        cardinality: 3, categories: ['a', 'b', 'c'], groupSizes: { a: 3, b: 3, c: 3 }, ...catOver },
+      { name: 'Num', kind: 'numeric', role: 'measure', n: 9, mean: 1, sd: 1, maxAbsZ: 1, ...numOver },
+    ],
+    separations: [{ cat: 'Cat', num: 'Num', eta2: 0.5, groups: 3, smallestGroup: 3, qualifies: true }],
+  };
+}
+const gScene = scene([{ id: 'sg', plotType: 'dotPlot', x: 'Num', y: null, legend: null, dataContext: 'Synth' }]);
+
+// CONTROL first: with nothing corrupted, all three families earn. Every `0`
+// below is therefore the identifier rule and nothing else.
+deepEq([observeComparison(honestSynth(), gScene).length, observeGrouping(honestSynth(), gScene).length,
+  observeFiltering(honestSynth(), gScene).length], [1, 1, 1],
+'CONTROL: an honest 3-groups-of-3 separation earns from all three families');
+
+const catIsIdRole = honestSynth({ catOver: { role: 'identifier' } });
+eq(observeComparison(catIsIdRole, gScene).length, 0,
+  'comparison refuses an identifier CATEGORICAL on `role` alone — groups 3, smallest 3, eta2 0.50 all pass');
+eq(observeGrouping(catIsIdRole, gScene).length, 0, 'same, grouping');
+eq(observeFiltering(catIsIdRole, gScene).length, 0, 'same, filtering');
+
+// `cardinality === caseCount` is the definition; with `role` absent it is the
+// only signal left. 3 categories over 3 cases, groups still 3, smallest 3.
+const catIsIdCard = honestSynth({ caseCount: 3, catOver: { role: undefined } });
+eq(observeComparison(catIsIdCard, gScene).length, 0,
+  'comparison refuses a categorical whose cardinality equals caseCount, with `role` absent');
+eq(observeGrouping(catIsIdCard, gScene).length, 0, 'same, grouping');
+eq(observeFiltering(catIsIdCard, gScene).length, 0, 'same, filtering');
+
+const numIsId = honestSynth({ numOver: { role: 'identifier' } });
+eq(observeComparison(numIsId, gScene).length, 0,
+  'comparison refuses an identifier MEASURE — you cannot compare the means of a row id');
+eq(observeGrouping(numIsId, gScene).length, 0, 'same, grouping');
+eq(observeFiltering(numIsId, gScene).length, 0, 'same, filtering');
+
+const catNotCategorical = honestSynth({ catOver: { kind: 'numeric' } });
+eq(observeComparison(catNotCategorical, gScene).length, 0,
+  'comparison refuses to group by an attribute CODAP calls numeric, whatever the separation says');
+const numNotNumeric = honestSynth({ numOver: { kind: 'categorical' } });
+eq(observeComparison(numNotNumeric, gScene).length, 0, '...and refuses a categorical as the measure');
+eq(observeGrouping(numNotNumeric, gScene).length, 0, 'same, grouping');
+
+// ---------------------------------------------------------------------------
+// H. One key separator across all seven families; no dead guard in grouping
+// ---------------------------------------------------------------------------
+console.log('\nH. cross-family key contract, and grouping has no unreachable guard');
+console.log('='.repeat(76));
+
+const SEPARATORS = [['comparison', KEY_SEPARATOR], ['grouping', GRP_SEP], ['filtering', FLT_SEP],
+  ['distribution', DIS_SEP], ['ordering', ORD_SEP], ['relationship', REL_SEP], ['second-dimension', SD_SEP]];
+for (const [name, sep] of SEPARATORS) eq(sep, '|', name + '.js exports KEY_SEPARATOR = "|"');
+eq(new Set(SEPARATORS.map(([, s]) => s)).size, 1, 'all seven families agree on one separator');
+
+// THE STATED PATTERN, for every family: `family ':' context ':' names.join(sep)`
+// where `names` is the focus attributes in a deterministic order. Asserted here
+// as a permutation of `focus`, because `relationship` sorts its two names while
+// the rest speak them in focus order.
+let patternBad = null;
+for (const o of ALL) {
+  const parts = o.key.split(':');
+  const why = (m) => { if (!patternBad) patternBad = o.key + ': ' + m; };
+  if (parts.length !== 3) { why('not family:context:names'); continue; }
+  if (parts[0] !== o.family) why('first part is not the family');
+  if (parts[1] !== o.dataContext) why('second part is not dataContext');
+  const namesInKey = parts[2].split(KEY_SEPARATOR);
+  if (JSON.stringify([...namesInKey].sort()) !== JSON.stringify([...o.focus].sort())) why('names are not focus');
+  if (o.key.includes('~')) why("still uses the old '~' separator");
+}
+ok(!patternBad, 'every key matches the one stated pattern', patternBad ?? '');
+
+// The other half of the cross-family decision: a graph whose `dataContext` is
+// `null` does not belong to this context. `web/src/scene-model.js:70-75` emits
+// `null` deliberately, and only for a graph with nothing dropped on it. These
+// three families already required strict equality; `relationship.js` and
+// `second-dimension.js` were changed to match, and the assertion is stated here
+// so the three cannot drift the other way.
+const NULL_CONTEXT_SCENE = scene([{ id: 'gnull', plotType: 'dotPlot', x: 'Sleep', y: null, legend: null, dataContext: null }]);
+eq(observeGrouping(MODEL, NULL_CONTEXT_SCENE).length, 0,
+  'a graph with no stated data context is not "that" — grouping declines');
+ok(observeComparison(MODEL, NULL_CONTEXT_SCENE).every((o) => o.novelty === 1
+  && o.scope.componentId === null),
+'a graph with no stated data context neither discounts novelty nor anchors a comparison');
+ok(observeFiltering(MODEL, NULL_CONTEXT_SCENE).every((o) => o.scope.componentId === null),
+  '...nor anchors a filtering');
+
+// The dead guard. `bestSeparation` in grouping.js only ever sees a `sep` whose
+// `cat` came from the `candidates` filter and whose `num` is in `shown`, and
+// both of those already applied the identifier rule, the kind rule, the
+// cardinality range and the smallest-group floor. The copy inside `qualifying`
+// was therefore unreachable while the header claimed it was load-bearing.
+// A behavioural test cannot see this — the behaviour is identical either way —
+// so it is asserted at the source, paired with section G above, which proves
+// the rules themselves still hold.
+const groupingSrc = readFileSync(join(SRC, 'grouping.js'), 'utf8');
+const qualifyingAt = groupingSrc.indexOf('function qualifying(');
+ok(qualifyingAt > 0, 'grouping.js still has a `qualifying` function to inspect');
+let depth = 0; let end = qualifyingAt;
+for (let i = groupingSrc.indexOf('{', qualifyingAt); i < groupingSrc.length; i++) {
+  if (groupingSrc[i] === '{') depth++;
+  else if (groupingSrc[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+}
+const qualifyingBody = groupingSrc.slice(qualifyingAt, end + 1)
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+for (const dead of ['isIdentifier', 'smallestGroupSize', 'cardinality', '.kind', 'byName']) {
+  ok(!qualifyingBody.includes(dead),
+    'grouping.js `qualifying` no longer re-checks ' + dead + ' — unreachable there, enforced on the attributes',
+    qualifyingBody);
+}
+// ...and the rules must still exist SOMEWHERE in the file. Deleting the dead
+// copy must not become an excuse for deleting the live one.
+for (const live of ['isIdentifier', 'smallestGroupSize', 'cardinality']) {
+  ok(groupingSrc.includes(live), 'grouping.js still enforces ' + live + ' somewhere');
+}
 
 // ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(76));

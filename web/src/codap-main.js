@@ -618,7 +618,18 @@ async function wonderingsTick() {
     // build (plan -002, "What is deliberately NOT in this build"), so a faded
     // wondering is counted as unacted and the next one waits longer. Erring
     // toward silence is the failure mode docs/CHARACTER.md asks for.
-    governorState = governorReducer(governorState, { type: 'unacted' });
+    //
+    // THAT DE-ESCALATION IS ALREADY DONE BY THE `offered` EVENT ABOVE, and
+    // dispatching `unacted` here as well double-counts it. Measured 2026-08-28,
+    // successive interval lengths in seconds:
+    //     offered + unacted   292 -> 900 -> 900 -> 900   (ceiling after 2)
+    //     offered alone       162 -> 292 -> 525 -> 900   (ceiling after 4)
+    // `offered` is the one that must stay: it alone carries the `at` timestamp
+    // the governor paces from. Assume-unacted-until-told-otherwise is the right
+    // reading while no ledger exists; it just may not be applied twice.
+    // t-governor.mjs exercises the offer-only and fade-only paths separately and
+    // never both for one wondering, so its own must-pass metric held here while
+    // the shipped system saturated — which is why this was invisible.
   }, WONDERING_DWELL_SEC * 1000);
 }
 

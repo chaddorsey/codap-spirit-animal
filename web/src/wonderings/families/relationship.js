@@ -44,6 +44,38 @@
  * qualifies(rho, n)`), which is where the arithmetic belongs and where one
  * change fixes every family at once. It is a decision for W3, not for this file.
  *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES. Both were found by adversarial verification
+ * (`docs/verification/wonderings/BUILD-VERIFICATION.md`) as DISAGREEMENTS
+ * between families, which is the one thing `Observation.key` cannot survive.
+ *
+ *   KEY SEPARATOR IS `'|'`. `contracts.js:142-147` makes `key` the
+ *   de-duplication key, the novelty key AND the W2 phrasing-hash input at the
+ *   same time, so two families spelling the same shape differently is three
+ *   bugs. `comparison.js` and `filtering.js` joined focus names with `'~'`;
+ *   this file and `second-dimension.js` used `'|'`. `'|'` won because it was
+ *   already the only one declared as a named constant with a stated meaning,
+ *   and it is now exported by all seven so a test can assert one spelling
+ *   rather than seven. Every family's key is
+ *   `family + ':' + context + ':' + names.join(KEY_SEPARATOR)`, where `names`
+ *   is that family's focus attributes in a deterministic order — sorted here
+ *   (see below), focus order everywhere else.
+ *
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT. This file and
+ *   `second-dimension.js` used to keep such a graph; `comparison`, `grouping`
+ *   and `filtering` required strict equality. Strict equality won, for a
+ *   reason from the producer: `web/src/scene-model.js:70-75` emits `null`
+ *   deliberately and ONLY for a graph with nothing dropped on it yet — a graph
+ *   that therefore has no `x`, `y` or `legend` either, so admitting it can
+ *   never suppress anything, and can only mis-anchor. `second-dimension.js`
+ *   shows the cost in its sharpest form: it EARNS from a graph in this
+ *   context, so a graph whose context merely failed to arrive would earn a
+ *   wondering about a dataset it does not show.
+ *   Note the deliberate asymmetry that survives this: `namesOnScreen` and
+ *   `pairsPlottedTogether` below still read EVERY context, because
+ *   over-counting the screen costs one wondering unsaid and under-counting it
+ *   costs a wondering about what the student is already looking at.
+ *
  * PURE. No browser globals, no clock, no randomness — same inputs, same
  * outputs, forever. That is what makes the W3 corpus reproducible and this file
  * testable in node (`docs/verification/wonderings/t-fam-relation.mjs`).
@@ -59,7 +91,16 @@
  */
 
 const FAMILY = 'relationship';        // Observation.family, spelled as in contracts.js
-const KEY_SEPARATOR = '|';            // separator between attribute names inside Observation.key
+
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families (see the header). Exported so a test can assert one
+ * spelling across the seven rather than seven spellings that happen to agree.
+ * An attribute whose own name contains this character would make the key
+ * ambiguous; CODAP has never produced one, and the alternative — escaping —
+ * would put a parser in a hash input that nobody parses.
+ */
+export const KEY_SEPARATOR = '|';     // literal; the sole join character in Observation.key
 const MIN_COMPLETE_PAIRS = 4;         // cases; below 4 rows with BOTH values present a correlation is an accident, not a shape (floor used by docs/verification/wonderings/observation-feasibility.mjs)
 const PLOTTED_NOVELTY_PENALTY = 0.5;  // unitless 0..1; novelty is cut by half this per focus attribute already on screen, so a pair the student half-knows ranks below one they have not met
 const FOCUS_SIZE = 2;                 // attributes named by this family; the divisor for the novelty penalty
@@ -89,10 +130,16 @@ function attrIndex(dataset) {
  */
 const isPairable = (attr) => !!attr && attr.kind === 'numeric' && attr.role !== 'identifier';
 
-/** Graphs belonging to this data context. A graph with no stated context is kept. */
+/**
+ * Graphs belonging to this data context — used ONLY to pick the anchor
+ * component. Strict equality: a graph whose `dataContext` is `null` has nothing
+ * dropped on it (`web/src/scene-model.js:70-75`) and so shows none of this
+ * dataset's attributes; anchoring to it would tie a wondering to a component
+ * that cannot answer it. See the cross-family rule in the header.
+ */
 function graphsInContext(scene, context) {
   const graphs = Array.isArray(scene?.graphs) ? scene.graphs : [];
-  return graphs.filter((g) => g && (g.dataContext == null || g.dataContext === context));
+  return graphs.filter((g) => g && g.dataContext === context);
 }
 
 /**

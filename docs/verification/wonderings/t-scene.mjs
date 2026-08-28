@@ -77,11 +77,13 @@ function fakeCodap(components) {
     dropIds: new Set(),     // component ids whose detail reply vanishes
     dropList: false,        // componentList reply vanishes
     refuseList: false,      // componentList answers success:false
+    listReply: undefined,   // when set, the LITERAL componentList reply (any shape)
     calls: [],
   };
   const read = async (action, resource) => {
     state.calls.push(`${action} ${resource}`);
     if (resource === 'componentList') {
+      if (state.listReply !== undefined) return state.listReply;
       if (state.dropList) return null;
       if (state.refuseList) return { success: false, values: { error: 'nope' } };
       return {
@@ -316,6 +318,90 @@ const refused = await model.refresh();
 eq(refused.reason, READ_REASONS.LIST_REFUSED, 'success:false is distinguishable from no reply');
 eq(JSON.stringify(model.scene), sceneBeforeListDrop, 'a refusal removes nothing either');
 codap.state.refuseList = false;
+
+// ===========================================================================
+console.log('\nD2. a MALFORMED componentList is a failed read, not a mass deletion');
+console.log('='.repeat(76));
+// ===========================================================================
+// Section D scripted the two failures the author thought of: the reply that
+// never came, and the reply that said no. The third — a reply that CAME and was
+// GARBAGE — is the dangerous one, because `Array.isArray(list.values) ? … : []`
+// turns it into an authoritative "there is nothing on screen", which retires
+// every visible wondering with reason `scene-gone`. Constraint 2 of the module
+// header ("absence requires affirmative observation") does not care which
+// message the absence arrived in. A shape we cannot read is not an observation.
+
+ok(typeof READ_REASONS.LIST_MALFORMED === 'string',
+  'READ_REASONS names a MALFORMED reason at all');
+ok(new Set(Object.values(READ_REASONS)).size === Object.keys(READ_REASONS).length,
+  'every READ_REASON is a distinct string — "lost", "refused" and "malformed" '
+  + 'must be discriminable from the console');
+
+/** Every shape CODAP might hand back that is NOT a readable component list. */
+const MALFORMED_LIST_REPLIES = [
+  ['{}', {}],
+  ['{success:true}', { success: true }],
+  ['{success:true, values:null}', { success: true, values: null }],
+  ["{success:true, values:'nonsense'}", { success: true, values: 'nonsense' }],
+  ['{success:true, values:{}} (object, not array)', { success: true, values: {} }],
+  ['{values:[…]} with no success field', { values: [{ id: 1, type: 'graph' }] }],
+  ['a bare string', 'nonsense'],
+  ['a bare number', 42],
+  ['a bare array', [{ id: 1, type: 'graph' }]],
+  ['a boolean', true],
+];
+
+const cM = fakeCodap(THREE);
+const mM = await createSceneModel({ read: cM.read, attributeNames: MAMMALS_ATTRS });
+eq(mM.scene.graphs.length, 3, 'primed with three graphs before the garbage arrives');
+const goodSceneJson = JSON.stringify(mM.scene);
+const goodVersion = mM.sceneVersion;
+
+for (const [label, reply] of MALFORMED_LIST_REPLIES) {
+  cM.state.listReply = reply;
+  const r = await mM.refresh();
+  eq(r.reason, READ_REASONS.LIST_MALFORMED, `${label} → reason LIST_MALFORMED`);
+  eq(r.ok, false, `${label} → not ok`);
+  eq(r.changed, false, `${label} → nothing changed`);
+  deep(r.removedIds, [], `${label} → removes NOTHING`);
+  deep(r.staleIds, [], `${label} → nothing is even claimed stale`);
+  eq(mM.scene.graphs.length, 3, `${label} → all three graphs survive`);
+  eq(JSON.stringify(mM.scene), goodSceneJson, `${label} → the scene is byte-identical`);
+  eq(mM.sceneVersion, goodVersion, `${label} → sceneVersion does not move`);
+}
+
+// A garbage reply must not cost a fan-out either: nothing was listed to read.
+const detailCallsDuringGarbage = cM.state.calls
+  .slice(cM.state.calls.indexOf('get componentList') + 1)
+  .filter((s) => s.startsWith('get component['));
+ok(detailCallsDuringGarbage.length === 3,
+  'a malformed list issues no per-component reads (only the 3 from priming)',
+  `saw ${detailCallsDuringGarbage.length}`);
+
+// It also has to HEAL: garbage is not a latch.
+cM.state.listReply = undefined;
+const healed = await mM.refresh();
+eq(healed.reason, READ_REASONS.OK, 'a good reply after the garbage reads OK again');
+eq(mM.scene.graphs.length, 3, 'and still sees three graphs');
+eq(mM.sceneVersion, goodVersion, 'an unchanged scene still does not bump the version');
+
+// THE OVER-CORRECTION, refuted in the same section: `{success:true, values:[]}`
+// is WELL-FORMED and IS affirmative evidence. "Reject anything that empties the
+// scene" would pass every assertion above and break real deletion.
+cM.state.listReply = { success: true, values: [] };
+const emptied = await mM.refresh();
+eq(emptied.reason, READ_REASONS.OK, 'an affirmative EMPTY list is a well-formed reply');
+eq(emptied.ok, true, 'and it is ok');
+deep(emptied.removedIds.map(Number).sort(), [1, 2, 3],
+  'and it really does remove all three');
+eq(mM.scene.graphs.length, 0, 'the scene is empty because we were TOLD it is empty');
+eq(mM.sceneVersion, goodVersion + 1, 'an observed emptying bumps the version');
+cM.state.listReply = undefined;
+
+// Health counts the failure rather than hiding it.
+ok(mM.health.listFailures >= MALFORMED_LIST_REPLIES.length,
+  'every malformed reply is counted as a list failure',
+  `listFailures = ${mM.health.listFailures}`);
 
 // ===========================================================================
 console.log('\nE. createSceneModel — removal DOES happen, on affirmative evidence');

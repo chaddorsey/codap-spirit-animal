@@ -46,6 +46,23 @@
  * end where the arithmetic lives; see the longer note in the sibling
  * `relationship.js`. It is a decision for W3, not for this file.
  *
+ * TWO CROSS-FAMILY RULES, DECIDED ONCE 2026-08-28 AND APPLIED IN ALL SEVEN
+ * FAMILY FILES; the full argument is in the sibling `relationship.js` header.
+ *
+ *   KEY SEPARATOR IS `'|'`, exported by every family, because `key` is the
+ *   de-duplication key, the novelty key and the W2 phrasing-hash input at once
+ *   (`contracts.js:142-147`) and two spellings of it are three bugs.
+ *
+ *   `graph.dataContext == null` DOES NOT BELONG TO THIS CONTEXT. This family is
+ *   the sharpest case for the rule, because it is the only one that EARNS from
+ *   a graph rather than merely being suppressed or anchored by one: admitting a
+ *   graph whose context is unstated would let a plot of somebody else's dataset
+ *   earn a wondering about this one. `web/src/scene-model.js:70-75` emits
+ *   `null` only for a graph with nothing dropped on it, which has no
+ *   `univariateAttr` to offer anyway.
+ *   `namesOnScreen` below deliberately still reads EVERY context: refusing to
+ *   name something the student can already see is the safe direction.
+ *
  * PURE. No browser globals, no clock, no randomness. Testable in node:
  * `docs/verification/wonderings/t-fam-relation.mjs`.
  *
@@ -59,7 +76,13 @@
  */
 
 const FAMILY = 'second-dimension';    // Observation.family, spelled as in contracts.js
-const KEY_SEPARATOR = '|';            // separator between attribute names inside Observation.key
+
+/**
+ * The one separator between attribute names inside `Observation.key`, shared by
+ * all seven families (see the header). Exported so a test can assert one
+ * spelling across the seven rather than seven spellings that happen to agree.
+ */
+export const KEY_SEPARATOR = '|';     // literal; the sole join character in Observation.key
 const MIN_COMPLETE_PAIRS = 4;         // cases; below 4 rows with BOTH values present a correlation is an accident, not a shape (floor used by docs/verification/wonderings/observation-feasibility.mjs)
 const OFFSCREEN_PARTNER_NOVELTY = 1;  // unitless 0..1; the partner is off screen BY CONSTRUCTION, so within one scene there is nothing to discount — session-level novelty is the W3 engine's job
 const ROUND_DECIMALS = 2;             // decimal places for derived numbers, so two runs compare byte-identically
@@ -88,10 +111,16 @@ function attrIndex(dataset) {
  */
 const isPairable = (attr) => !!attr && attr.kind === 'numeric' && attr.role !== 'identifier';
 
-/** Graphs belonging to this data context. A graph with no stated context is kept. */
+/**
+ * Graphs belonging to this data context — and for this family that is the set a
+ * wondering can be EARNED from. Strict equality: a graph whose `dataContext` is
+ * `null` has nothing dropped on it (`web/src/scene-model.js:70-75`), and a
+ * graph of another dataset is not evidence about this one. See the cross-family
+ * rule in the header.
+ */
 function graphsInContext(scene, context) {
   const graphs = Array.isArray(scene?.graphs) ? scene.graphs : [];
-  return graphs.filter((g) => g && (g.dataContext == null || g.dataContext === context));
+  return graphs.filter((g) => g && g.dataContext === context);
 }
 
 /**

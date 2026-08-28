@@ -22,10 +22,20 @@
  *
  * So this module is three rules, not one statistic:
  *
- *   1. IDENTIFIER EXCLUSION — `cardinality === caseCount` means the column
- *      names the cases rather than describing them. Excluded EVERYWHERE, and
- *      excluded BEFORE the group-count ceiling, so the refusal is attributed to
- *      the right cause in the provenance panel.
+ *   1. IDENTIFIER EXCLUSION — a column with a distinct value for (nearly) every
+ *      case names the cases rather than describing them. Excluded EVERYWHERE,
+ *      and excluded BEFORE the group-count ceiling, so the refusal is
+ *      attributed to the right cause in the provenance panel.
+ *
+ *      NEARLY, not exactly: the rule was `cardinality === caseCount` until
+ *      2026-08-28, and `docs/verification/wonderings/BUILD-VERIFICATION.md`
+ *      showed that one blank cell defeated it. Measured: blanking a single
+ *      `Mammal` name in the 12-case fixture flipped the role to `'category'`
+ *      and every `Mammal x numeric` refusal from `'identifier'` to
+ *      `'too-many-groups'` — while eta² stayed at 1.00 over the 11 named cases.
+ *      The wrong reason is worse than it looks: "too many groups" invites the
+ *      student to try a coarser grouping of a column that should never be
+ *      grouped. See `IDENTIFIER_DISTINCT_FRACTION` for the threshold.
  *   2. GROUP-COUNT CEILING — more groups than `GROUP_COUNT_CEILING` cannot be
  *      compared honestly at these case counts.
  *   3. MINIMUM GROUP SIZE — a group below `MIN_GROUP_SIZE` has no mean worth
@@ -63,6 +73,32 @@ export const ETA2_FLOOR = 0.30;
 
 /** groups; one group is not a comparison, so eta² needs at least two. */
 export const MIN_GROUPS = 2;
+
+/**
+ * unitless 0..1; distinct values as a fraction of CASES, at or above which a
+ * non-numeric column is read as naming its cases rather than describing them.
+ *
+ * 0.9 is bracketed on both sides by cases that must not move, so it is a
+ * measured value and not a taste:
+ *   - UPPER BOUND 11/12 = 0.917. One blank (or one duplicated) name in the
+ *     12-case Mammals fixture must still read as an identifier — the defect
+ *     recorded in the file header.
+ *   - LOWER BOUND 5/6 = 0.833. `['1','2','n/a','2','5','6']` has a genuinely
+ *     REPEATED value and must stay a category; `t-grouping.mjs` has pinned that
+ *     since the module was written.
+ * At 12 cases that is a tolerance of exactly one odd cell; at 20 cases, two.
+ *
+ * The asymmetry is deliberate, and it is the reverse of `isSerialKey`'s. Being
+ * too tolerant here is nearly free: a real category with 90% distinct values
+ * over n cases has ~0.9n groups and `GROUP_COUNT_CEILING` (4) refuses it a line
+ * later anyway. Being too strict costs the whole guard, because a name column
+ * scores eta² = 1.00 against every numeric there is.
+ *
+ * Measured against CASES, not against non-blank values: `distinct === present`
+ * alone would make three names and nine blanks an identifier, and three
+ * distinct values over twelve cases is a category by any reading.
+ */
+export const IDENTIFIER_DISTINCT_FRACTION = 0.9;
 
 /** cases with BOTH values present; below 4, between-group variance is noise, not signal. */
 export const MIN_SEPARATION_CASES = 4;
@@ -163,8 +199,12 @@ export function role(attrName, values, caseCount) {
     return isSerialKey(nums, total) ? 'identifier' : 'measure';
   }
 
+  // Near-unique, not exactly unique: one blank or one duplicated name must not
+  // demote a column that plainly names its cases. See
+  // IDENTIFIER_DISTINCT_FRACTION for the threshold and the two cases that
+  // bracket it.
   const distinct = new Set(present.map((v) => String(v))).size;
-  return distinct === total ? 'identifier' : 'category';
+  return distinct >= total * IDENTIFIER_DISTINCT_FRACTION ? 'identifier' : 'category';
 }
 
 // --- group shape ------------------------------------------------------------
@@ -265,7 +305,8 @@ export function eta2(rows, cat, num) {
 
 /**
  * Apply the guards. `reason` is one of:
- *   'identifier'       — `cardinality === caseCount`; the column names cases.
+ *   'identifier'       — near-unique (see `IDENTIFIER_DISTINCT_FRACTION`); the
+ *                        column names cases rather than describing them.
  *   'not-a-category'   — the grouping column reads as a measure.
  *   'not-a-measure'    — the numeric column does not read as a measure.
  *   'insufficient-data'— too few complete cases, or fewer than two groups.

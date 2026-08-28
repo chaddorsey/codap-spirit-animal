@@ -393,12 +393,22 @@ ok(totalPhrasings >= 40, `the phrasing table holds ${totalPhrasings} distinct ph
 console.log("\nF. plan -001's own stems, measured against this build's lint");
 console.log('='.repeat(76));
 
+// RE-MEASURED 2026-08-28 against the REPAIRED lint. The first measurement was
+// taken against a lint with two defects BUILD-VERIFICATION.md then recorded and
+// `web/src/wonderings/lint.js` has since fixed: the second-person rule matched
+// `what does ` and falsely refused the DISTRIBUTION stem, and the statistical
+// vocabulary matched only `\bmean\b` so the COMPARISON stem passed on the
+// plural. Both verdicts have flipped, and the count did not: three of seven are
+// still not shippable, but they are now the three that use the editorial `we`
+// plus the one that states a statistic. The design conclusion is unchanged and
+// better supported — the phrasings in `realize.js` avoid `we` and avoid the word
+// `mean` in any number, and the lint now agrees about the second.
 const STEMS = [
-  ['distribution', 'What does the distribution of mass look like?', ['Mass'], false],
+  ['distribution', 'What does the distribution of mass look like?', ['Mass'], true],
   ['ordering', 'What if we sort by mass?', ['Mass'], false],
   ['relationship', 'How does height go with sleep?', ['Height', 'Sleep'], true],
   ['second-dimension', 'Does height matter here too?', ['Height'], true],
-  ['comparison', 'How do the means of sleep compare?', ['Sleep'], true],
+  ['comparison', 'How do the means of sleep compare?', ['Sleep'], false],
   ['grouping', 'How would that look grouped by diet?', ['Diet'], true],
   ['filtering', 'What if we only looked at diet?', ['Diet'], false],
 ];
@@ -409,9 +419,12 @@ for (const [family, text, focus, expectedOk] of STEMS) {
   eq(verdict.ok, expectedOk, `stem ${family}: "${text}" is ${expectedOk ? 'lint-clean' : 'REFUSED'}`);
 }
 eq(stemFailures, 3, 'three of the seven stems in the family table are not shippable text');
-ok(lintWondering('How do the means of sleep compare?', ['Sleep']).ok
+ok(!lintWondering('How do the means of sleep compare?', ['Sleep']).ok
   && !lintWondering('How does the mean of sleep compare?', ['Sleep']).ok,
-  'the comparison stem survives only because `\\bmean\\b` misses the plural');
+  'the comparison stem is refused in the singular AND the plural — no technicality left');
+ok(STEMS.filter(([, , , expectedOk]) => !expectedOk).every(([, text]) => /\bwe\b/.test(text)
+  || !lintWondering(text, []).ok),
+  'every refused stem is refused for a stated reason, not by accident');
 ok(!REALIZED.some((r) => /\bmeans?\b/i.test(r.text)),
   'no emitted wondering uses the word "mean" or "means"');
 
@@ -446,7 +459,188 @@ ok(REALIZABLE_FAMILIES.every((f) => f in FAMILIES),
   'REALIZABLE_FAMILIES matches the families actually on disk');
 
 // ---------------------------------------------------------------------------
-console.log('\nH. ten example wonderings from the Mammals fixture');
+console.log('\nH. the four defects BUILD-VERIFICATION.md recorded against this module');
+console.log('='.repeat(76));
+
+// --- H1. key -> text is a FUNCTION -----------------------------------------
+// The old section C could not see this: every one of its assertions re-realizes
+// the SAME object, so a realizer that hashed `focus.join('|')` and ignored `key`
+// entirely passed it. The property the module's own header NAMES is that two
+// DISTINCT observations sharing a key read the same way. Provable from the
+// shipped corpus: `corpus.txt` triples 4 and 36 both carry key
+// `relationship:Mammals:Height|Mass` and both select `rel-story`, and they read
+// "Might height and mass be telling one story?" and "Might mass and height be
+// telling one story?" — because `families/relationship.js` sorts the names into
+// the key but orders `focus` by what is on screen.
+{
+  const HEIGHT_MASS = 'relationship:Mammals:Height|Mass';
+  const base = {
+    family: 'relationship', key: HEIGHT_MASS, dataContext: 'Mammals',
+    evidence: { r: 0.587, rho: 0.817, n: 12 }, strength: 0.82, novelty: 1,
+    scope: { componentId: null },
+  };
+  const shipped = realize({ ...base, focus: ['Height', 'Mass'] });    // corpus triple 4
+  const swapped = realize({ ...base, focus: ['Mass', 'Height'] });    // corpus triple 36
+  ok(shipped !== null && swapped !== null, 'both corpus orderings of Height|Mass realize');
+  eq(swapped?.text, shipped?.text,
+    'corpus triples 4 and 36 share a key and must read identically');
+  eq(swapped?.provenance.phrasing, shipped?.provenance.phrasing,
+    'they also share the phrasing (they always did — the names were in the other order)');
+
+  // The general property, over every two-name observation the real families
+  // emit: if the key names both attributes, permuting `focus` cannot change the
+  // sentence, because the key is unchanged and the key is the identity.
+  let permuted = 0;
+  let stable = 0;
+  for (const { observation } of REALIZED) {
+    if (!Array.isArray(observation.focus) || observation.focus.length !== 2) continue;
+    const tokens = String(observation.key).split(/[:|~]/);
+    if (!observation.focus.every((f) => tokens.filter((t) => t === f).length === 1)) continue;
+    permuted++;
+    const other = realize({ ...observation, focus: [observation.focus[1], observation.focus[0]] });
+    if (eq(other?.text, realize(observation)?.text,
+      `permuting focus leaves ${observation.key} unchanged`)) stable++;
+  }
+  ok(permuted >= 4, `the fixture supplies ${permuted} two-name keys to permute`);
+  eq(stable, permuted, 'every permutable observation read the same both ways');
+
+  // ...and the orderings a family DECLARED are still honoured. `focus[0]` of a
+  // second-dimension observation is the off-screen partner and `focus[1]` the
+  // plotted attribute (that file calls the asymmetry load-bearing), and its key
+  // records the same order, so nothing may be reordered here.
+  const sec = realize({
+    family: 'second-dimension', key: 'second-dimension:Mammals:Height|Mass',
+    dataContext: 'Mammals', focus: ['Height', 'Mass'], evidence: {},
+    strength: 0.82, novelty: 1, scope: { componentId: 'g1' },
+  });
+  ok(sec !== null && sec.provenance.names[0] === 'height' && sec.provenance.names[1] === 'mass',
+    'second-dimension keeps partner-then-plotted, the order its key declares',
+    j(sec && sec.provenance.names));
+  const secOther = realize({
+    family: 'second-dimension', key: 'second-dimension:Mammals:Mass|Height',
+    dataContext: 'Mammals', focus: ['Mass', 'Height'], evidence: {},
+    strength: 0.82, novelty: 1, scope: { componentId: 'g1' },
+  });
+  ok(secOther !== null && secOther.provenance.names[0] === 'mass',
+    'the mirrored second-dimension key speaks its own order — different key, different text');
+  ok(secOther && sec && secOther.text !== sec.text,
+    'two DIFFERENT keys are free to read differently');
+}
+
+// --- H2. no name may escape through the prototype chain ---------------------
+// `PHRASINGS[observation.family]` walked the prototype chain, so a family
+// colliding with an `Object.prototype` member reached a non-array and THREW,
+// and a column named `__proto__` rendered to "proto" and was spoken.
+const PROTOTYPE_NAMES = Object.getOwnPropertyNames(Object.prototype);
+ok(PROTOTYPE_NAMES.includes('constructor') && PROTOTYPE_NAMES.includes('__proto__'),
+  `Object.prototype supplies ${PROTOTYPE_NAMES.length} hostile names to try`);
+
+function realizeSafely(observation) {
+  try { return { threw: null, result: realize(observation) }; }
+  catch (err) { return { threw: String(err && err.message), result: undefined }; }
+}
+
+{
+  let threw = 0;
+  let spoke = 0;
+  for (const name of PROTOTYPE_NAMES) {
+    // As a family: with and without an `evidence.kind` that is itself an own
+    // member of whatever the prototype chain hands back.
+    for (const kind of [undefined, 'keys', 'toString', 'name', 'length']) {
+      const r = realizeSafely({
+        family: name, key: `${name}:Mammals:Mass`, dataContext: 'Mammals',
+        focus: ['Mass'], evidence: kind === undefined ? {} : { kind },
+        strength: 0.5, novelty: 0.5, scope: { componentId: null },
+      });
+      if (r.threw !== null) { threw++; console.log(`  FAIL  realize(family:${j(name)}, kind:${j(kind)}) threw ${r.threw}`); failures++; }
+      else if (r.result !== null) { spoke++; console.log(`  FAIL  family ${j(name)} realized to ${j(r.result.text)}`); failures++; }
+    }
+    // As a column name.
+    const asFocus = realizeSafely({
+      family: 'distribution', key: `distribution:Mammals:${name}`, dataContext: 'Mammals',
+      focus: [name], evidence: {}, strength: 0.5, novelty: 0.5, scope: { componentId: null },
+    });
+    if (asFocus.threw !== null) { threw++; console.log(`  FAIL  realize(focus:[${j(name)}]) threw ${asFocus.threw}`); failures++; }
+    else if (asFocus.result !== null) { spoke++; console.log(`  FAIL  column ${j(name)} realized to ${j(asFocus.result.text)}`); failures++; }
+  }
+  ok(threw === 0, `no Object.prototype member name throws (${PROTOTYPE_NAMES.length} tried as family and as column)`);
+  ok(spoke === 0, 'no Object.prototype member name is spoken');
+}
+isNull(realizeSafely(obs({ family: 'constructor', evidence: { kind: 'keys' } })).result,
+  'family "constructor" with a kind that IS an own member of Object returns null');
+isNull(realizeSafely(obs({ focus: ['__proto__'], key: 'distribution:Mammals:__proto__' })).result,
+  'a column named __proto__ is not spoken as "proto"');
+// A second name beside a hostile one must not rescue the sentence.
+isNull(realizeSafely(obs({ family: 'relationship', focus: ['Mass', '__proto__'], key: 'relationship:Mammals:Mass|__proto__' })).result,
+  'one hostile name of two suppresses the whole wondering');
+
+// --- H3. the duplicate-focus guard compares what is SPOKEN ------------------
+// The guard's own comment says "how does mass go with mass?" must never ship.
+// It compared RAW names, so two spellings of one column walked through it.
+for (const pair of [['LifeSpan', 'Life_Span'], ['Mass', 'mass'], ['Height', ' Height'],
+  ['Life_Span', 'life span'], ['LifeSpan', 'LIFE_SPAN']]) {
+  const rendered = pair.map((p) => renderAttributeName(p).text);
+  ok(rendered[0].toLowerCase() === rendered[1].toLowerCase(),
+    `  precondition: ${j(pair)} both render to "${rendered[0]}"`);
+  isNull(realize(obs({ family: 'relationship', focus: pair, key: `relationship:Mammals:${pair.join('|')}` })),
+    `two spellings of one column return null: ${j(pair)}`);
+  isNull(realize(obs({ family: 'second-dimension', focus: pair, key: `second-dimension:Mammals:${pair.join('|')}` })),
+    `  ...in second-dimension too: ${j(pair)}`);
+}
+// The control: two names that render DIFFERENTLY still realize.
+ok(realize(obs({ family: 'relationship', focus: ['LifeSpan', 'Height'], key: 'relationship:Mammals:Height|LifeSpan' })) !== null,
+  'two genuinely different names still realize');
+
+// --- H4. a column name may not state a statistic ----------------------------
+// The lint bans statistical vocabulary in the SENTENCE, at word boundaries.
+// The other half of every sentence is a column name nobody reviewed, and the
+// lint's `\bmean\b` and `\bstrong\w*\b` do not match the forms a column takes.
+const STATISTICAL_COLUMNS = [
+  // `Avg` is deliberately absent: it renders to `avg`, whose coda `vg` is not
+  // English, so the readability rule already suppresses it and it would prove
+  // nothing here.
+  'Means', 'Mean', 'Strength', 'Averages', 'Average', 'Medians',
+  'Correlation', 'Outliers', 'Trend', 'Variance', 'Deviation',
+];
+for (const name of STATISTICAL_COLUMNS) {
+  ok(renderAttributeName(name).readable,
+    `  precondition: "${name}" renders readably ("${renderAttributeName(name).text}")`);
+  // Suppression must be total, not a phrasing that happens to be unlucky: no
+  // key anywhere in the hash space may find words for it.
+  let spoken = null;
+  for (let i = 0; i < PROBE_KEYS && spoken === null; i++) {
+    for (const family of ['distribution', 'ordering', 'grouping']) {
+      const r = realize({
+        family, key: `${family}:Probe:${i}`, dataContext: 'Mammals', focus: [name],
+        evidence: {}, strength: 0.5, novelty: 0.5, scope: { componentId: null },
+      });
+      if (r !== null) { spoken = `${family}: ${r.text}`; break; }
+    }
+  }
+  isNull(spoken, `a column named "${name}" is never spoken`);
+}
+// Two names, one of them statistical: the whole wondering goes.
+isNull(realize(obs({ family: 'relationship', focus: ['Mass', 'Strength'], key: 'relationship:Mammals:Mass|Strength' })),
+  'one statistical name of two suppresses the whole relationship wondering');
+// The control: the rule is WHOLE WORDS of the rendered name, not substrings.
+// `Demeanor` contains `mean` and is an ordinary word; suppressing it would be
+// the rule eating the dataset. (`Meaning` is deliberately not used here: it
+// begins with `mean`, so whether it survives is `lint.js`'s call, not this
+// module's, and this test must not lock another agent's file into place.)
+for (const name of ['Demeanor', 'Model', 'Speed', 'TrendLine']) {
+  const r = realize(obs({ focus: [name], key: `distribution:Mammals:${name}` }));
+  if (name === 'TrendLine') {
+    isNull(r, `"${name}" renders to "trend line" and states a statistic — suppressed`);
+  } else {
+    ok(r !== null, `"${name}" is an ordinary word and still speaks: ${r && r.text}`);
+  }
+}
+// And nothing the real fixture emits states a statistic in a name.
+ok(!REALIZED.some((r) => /\b(means?|medians?|averages?|avg|strengths?|outliers?|trends?|variances?|deviations?|correlations?)\b/i.test(r.text)),
+  'no wondering from the real fixture states a statistic, in a name or otherwise');
+
+// ---------------------------------------------------------------------------
+console.log('\nI. ten example wonderings from the Mammals fixture');
 console.log('='.repeat(76));
 for (const r of REALIZED.slice(0, 10)) {
   console.log(`  ${r.family.padEnd(17)} ${r.provenance.phrasing.padEnd(13)} ${r.text}`);

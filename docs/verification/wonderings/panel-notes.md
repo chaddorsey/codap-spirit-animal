@@ -4,12 +4,30 @@ Written 2026-08-28, branch `fix/stale-iframe-document`.
 Governing plan: `docs/plans/2026-08-28-002-feat-wonderings-parallel-build-plan.md`
 (module **K**, wave W2). Rationale: `docs/plans/2026-08-28-001-feat-wonderings-ambient-inquiry-plan.md` §U4.
 
-**Why this file is prose and not a `.mjs`.** Every other W1/W2 module is a pure
-function over data and is verified by `node docs/verification/wonderings/t-*.mjs`.
-Module K owns geometry, stacking and paint inside a live CODAP iframe. There is
-no honest way to assert "the panel sits below the tool shelf and under Dot" from
-node, so its verification is the **recorded manual protocol in §6 below**, plus
-the two automated checks in §5 that *can* be run headlessly.
+**Why this file is prose AND there is now a `.mjs` as well.** Every other W1/W2
+module is a pure function over data and is verified by
+`node docs/verification/wonderings/t-*.mjs`. Module K owns geometry, stacking and
+paint inside a live CODAP iframe, so it was originally commissioned with this
+prose protocol as its *only* verification.
+
+**That was drawn too widely, and it cost a defect.** The 2026-08-28 adversarial
+verification (`BUILD-VERIFICATION.md`) found the panel holding **two items in one
+`aria-live` region for the full 1600 ms sink**, with the retiring one still in
+normal flow — found with a DOM shim, in seconds, with no browser involved. "Needs
+a browser" is true of colour, layout and computed style. It is **false** of DOM
+shape, ARIA, timers and teardown.
+
+So verification is now two halves, and neither replaces the other:
+
+| Half | Path | Decides |
+|---|---|---|
+| Automated | `docs/verification/wonderings/t-panel.mjs` — `node docs/verification/wonderings/t-panel.mjs`, exits 0 | declared `z-index` and `pointer-events`; DOM shape and ARIA; at most one item in the live region, ever; `destroy()` releasing element, resize listener and timers; `contentDocument` re-read at every measurement |
+| Manual | **§6 below** | everything only a browser can decide — see §5's "what the node test cannot decide" list |
+
+`t-panel.mjs` uses a hand-written DOM shim and a virtual clock. **No jsdom and no
+test runner**: the goal's boundaries forbid adding a dependency, and a shim that
+only implements the surface the module touches is also a readable statement of
+exactly how much browser this module needs.
 
 **Filename note.** The plan's W2 table calls this artifact `panel.md`; plan `-001`
 §U4 calls it `docs/verification/wonderings/panel.md`. It is written here as
@@ -117,7 +135,10 @@ protocol inspects).
 ```html
 <div class="wonderings-panel" data-state="hidden" hidden style="top:62px; right:12px">
   <div class="wp-label">Wonderings</div>
-  <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+  <div class="wp-stack">
+    <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+    <div class="wp-exit" aria-hidden="true"></div>
+  </div>
 </div>
 ```
 
@@ -135,7 +156,10 @@ call `createWonderingsPanel()` at all when the flag is absent.
 ```html
 <div class="wonderings-panel" data-state="idle" style="top:62px; right:12px">
   <div class="wp-label">Wonderings</div>
-  <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+  <div class="wp-stack">
+    <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+    <div class="wp-exit" aria-hidden="true"></div>
+  </div>
 </div>
 ```
 
@@ -147,7 +171,10 @@ makes an arriving question legible as *a wondering* rather than as an alert.
 ```html
 <div class="wonderings-panel" data-state="thinking" style="top:62px; right:12px">
   <div class="wp-label">Wonderings</div>
-  <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+  <div class="wp-stack">
+    <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions"></div>
+    <div class="wp-exit" aria-hidden="true"></div>
+  </div>
 </div>
 ```
 
@@ -169,15 +196,64 @@ wondering that arrived during the window.
 ```html
 <div class="wonderings-panel" data-state="showing" style="top:62px; right:12px">
   <div class="wp-label">Wonderings</div>
-  <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions">
-    <p class="wp-item" data-key="1kf3xq">What if the heaviest animals are also the slowest?</p>
+  <div class="wp-stack">
+    <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions">
+      <p class="wp-item" data-key="1kf3xq">What if the heaviest animals are also the slowest?</p>
+    </div>
+    <div class="wp-exit" aria-hidden="true"></div>
   </div>
 </div>
 ```
 
-At most one `.wp-item` is settled at a time. During a handover a second `<p>` is
-transiently present carrying `class="wp-item is-leaving"`, `data-retiring="1"`
-and `aria-hidden="true"`; it is removed after `SINK_MS`.
+**The live region holds at most one `.wp-item`, at every instant — including
+during a handover.** Mid-handover the outgoing `<p>` is in `.wp-exit`, not in
+`.wp-live`:
+
+```html
+  <div class="wp-stack" style="min-height:23px">
+    <div class="wp-live" aria-live="polite" aria-atomic="false" aria-relevant="additions">
+      <p class="wp-item" data-key="0q8w4c">Which animals are out on their own?</p>
+    </div>
+    <div class="wp-exit" aria-hidden="true">
+      <p class="wp-item is-leaving" data-key="1kf3xq" data-retiring="1" aria-hidden="true">…</p>
+    </div>
+  </div>
+```
+
+**Why `.wp-exit` exists** (fixes the defect recorded in `BUILD-VERIFICATION.md`,
+"the panel holds two items in the live region for 1600 ms"). Before 2026-08-28 the
+retiring `<p>` simply stayed in `.wp-live` until its `SINK_MS` timer removed it,
+which was wrong twice over:
+
+1. **Accessibility.** Two questions sat in one `aria-live` region for 1600 ms. A
+   screen reader scanning the region found both.
+2. **Layout.** `.wp-item` is a block `<p>` with `margin: 7px 0 0`, and
+   `is-leaving` only changes `opacity` and `transform` — neither of which takes a
+   box out of flow. So the *arriving* wondering was pushed a line down the page
+   for the whole sink and then snapped back up. In a panel whose entire design
+   goal is "reads as weather, not as a notification", that snap is the loudest
+   thing on screen.
+
+`retire()` now moves the node into `.wp-exit` **immediately**, which is both fixes
+at once: out of the live region, and `position: absolute` inside
+`position: relative` `.wp-stack`, therefore out of normal flow. `aria-hidden`
+stays as a second line of defence, and `aria-relevant="additions"` means the move
+(a removal, from the live region's point of view) is silent.
+
+The sink itself is **unchanged**: `is-leaving` still runs for the deliberate
+`SINK_MS = 1600 ms` with the same `translateY(+18px)` travel. Plan `-001` chose a
+slow dwell and a sinking departure over a fast crossfade because a 400 ms opacity
+fade is a change-blind transition; this fix is about flow and the accessibility
+tree, not about speed. `t-panel.mjs` group G asserts both numbers so a later
+"simplification" to a crossfade fails loudly.
+
+`.wp-stack` gets an inline `min-height` for the duration of the sink, taken from
+the retiring item's `offsetHeight`, so lifting the item out of flow does not snap
+the backplate shorter underneath text that is still visible. It is cleared when
+the exit layer empties. `.wp-stack` is `display: flow-root`, which keeps
+`.wp-item`'s 7 px top margin inside the stack — that is what makes the in-flow
+item and the absolutely-positioned exit item start on the same baseline, so the
+departure does not jump as it begins.
 
 `data-key` is FNV-1a over the whitespace-normalised text — a **stable** key, so
 `show()` called twice with the same wondering reuses the existing node and does
@@ -272,42 +348,66 @@ design exists to avoid.
 - `aria-live="polite"`, `aria-atomic="false"`, `aria-relevant="additions"`. The
   `additions`-only value is what keeps the **sinking departure silent**: removals
   are not announced, so a wondering ageing out does not interrupt a second time.
-- The departing node also gets `aria-hidden="true"` before removal, against a
-  screen reader re-scanning the region mid-exit.
+- **A departing wondering leaves the live region at once**, moved to `.wp-exit`
+  (§4). The live region therefore never contains two questions, at any instant.
+- The departing node also gets `aria-hidden="true"`, and `.wp-exit` itself is
+  `aria-hidden="true"`, against a screen reader re-scanning the subtree mid-exit.
 - Wondering text is written with `textContent`, never `innerHTML`.
 
-### Headless checks (the only ones that mean anything without a browser)
+### Headless checks
 
 ```bash
 cd /Users/chaddorsey/Dropbox/dev/codap-spirit-animal
 node --check web/src/ui/wonderings-panel.js
-grep -n 'data-state'   web/src/ui/wonderings-panel.js
+node docs/verification/wonderings/t-panel.mjs        # 75 assertions, exits 0
+grep -n 'data-state'    web/src/ui/wonderings-panel.js
 grep -n 'clearInterval' web/src/ui/wonderings-panel.js
 ```
 
 Run 2026-08-28. Expected output, and what each line means:
 
-- `node --check` exits **0**.
-- `data-state` → **exactly one hit, line 472, inside a JSDoc comment.** The
-  attribute is written in JS as `root.dataset.state = next`, which is why the
-  literal string does not otherwise appear. **Zero hits inside the `CSS` template
-  literal is the invariant**: the moment a rule such as
-  `.wonderings-panel[data-state="thinking"] { … }` appears here, `thinking` stops
-  being visually identical to `idle` and the design is broken.
-- `clearInterval` → **three hits: lines 26 and 396 are comments describing the
-  `dot-badge.js` defect being fixed; line 507 is the only executable one, inside
-  `destroy()`.** An executable `clearInterval` anywhere else — in particular
-  wrapped in a `setTimeout` — means defect 3 has regressed.
+- `node --check` exits **0**. A stub passes this too; it is a syntax check, not
+  acceptance.
+- **`t-panel.mjs` exits 0** and prints `OK — every assertion passed`. Groups A–G
+  are described in that file's header. It is the check that decides the goal's
+  three machine-checkable panel metrics short of a browser: the *declared*
+  `z-index: 40` and `pointer-events: none`, and that `contentDocument` is never
+  cached.
+- `data-state` → hits are **comments and the one `root.dataset.state = next`
+  assignment**; **zero hits inside the `CSS` template literal is the invariant.**
+  The moment a rule such as `.wonderings-panel[data-state="thinking"] { … }`
+  appears there, `thinking` stops being visually identical to `idle` and the
+  design is broken. `t-panel.mjs` group G asserts this against the injected
+  stylesheet, so the grep is now a convenience rather than the only guard.
+- `clearInterval` → the **only executable hit is inside `destroy()`**; the others
+  are comments describing the `dot-badge.js` defect being fixed. An executable
+  `clearInterval` anywhere else — in particular wrapped in a `setTimeout` — means
+  defect 3 has regressed. (Line numbers are deliberately not quoted here: they
+  went stale the first time the file was edited.)
 
-A stub could pass `node --check`, so these two greps and §6 are what actually
-verify the module. Do not treat a green `node --check` as acceptance.
+### What the node test cannot decide — these stay human (§6)
+
+The shim has no layout engine, no cascade and no compositor. It reads *declared*
+CSS out of the injected `<style>`; it cannot compute anything. So the following
+are **not** covered by `t-panel.mjs` and are verified only by §6:
+
+| Not covered | Why | §6 step |
+|---|---|---|
+| **Computed** z-index strictly between `#codap` and `#stage` | requires a real cascade and a real stacking context; the shim only knows the rule *declares* 40 | 4 |
+| The panel actually never eats a click | `pointer-events` is a hit-testing behaviour; the shim asserts the declaration, `elementFromPoint` asserts the behaviour | 5 |
+| The measured anchor: 10 px below the real CODAP tool shelf | needs CODAP's real DOM and real rects; the shim feeds pre-registered rectangles, which proves the *arithmetic* and the freshness, not the selectors | 2, 3, 8 |
+| `idle` and `thinking` are indistinguishable **on screen** | needs pixels; the shim proves only that no CSS rule targets `[data-state]` | 6 |
+| The rise and sink read as weather in peripheral vision | a perceptual claim; no automated substitute exists | 7 |
+| Contrast as rendered, and `prefers-reduced-motion` | the ratios are arithmetic (reproducible above), but that they apply to the painted text is not | 5, 7 |
+| The 1024 px bail-out: not covering CODAP's own chrome | a layout question about someone else's markup | bail-out check |
 
 ---
 
 ## 6. Manual verification protocol
 
-Run all of it. Steps 1–8 are the acceptance record; record PASS/FAIL and the
-screenshot filename beside each.
+Run all of it. Steps 1–9 are the acceptance record; record PASS/FAIL and the
+screenshot filename beside each. Run `node docs/verification/wonderings/t-panel.mjs`
+first — if it fails, do not spend a browser session on it.
 
 **Setup**
 
@@ -386,6 +486,32 @@ wp.show('x');                                                // → null, no thr
 wp.destroy();                                                // no throw
 ```
 
+**9 — The A → B handover does not shove the page.** This is the browser half of
+the defect fixed in §4; `t-panel.mjs` group D covers the DOM, this covers the
+pixels.
+
+```js
+wp.setState('idle');
+wp.show('Which animals are out on their own?');
+setTimeout(() => {
+  const before = wp.el.querySelector('.wp-live .wp-item').getBoundingClientRect().top;
+  wp.show('What if the heaviest animals are also the slowest?');
+  requestAnimationFrame(() => {
+    const live = wp.el.querySelectorAll('.wp-live .wp-item');
+    const after = live[0].getBoundingClientRect().top;
+    console.log({ liveCount: live.length, before, after, drift: after - before });
+  });
+}, 3000);
+```
+
+PASS: `liveCount` is **1** and `drift` is **0 ± 1 px**. Watch it happen too — the
+outgoing question must sink from exactly where it was standing while the incoming
+one rises into the same slot; neither may jump. Screenshot mid-handover as
+`docs/verification/wonderings/panel-handover.png`.
+
+Then, with a screen reader running (VoiceOver: ⌘F5), repeat. PASS: **one** question
+is announced, the incoming one. The departure is silent.
+
 **Bail-out check (from the goal).** At 1024 px, confirm the panel does not cover
 CODAP's own chrome — the tool shelf, the component title bars along the top. It
 *will* float over component **contents**; that is the design. If it cannot avoid
@@ -406,3 +532,9 @@ CODAP's chrome at 1024 px, **bail out and report — do not redesign.**
 - **Nothing injected into CODAP's DOM.** The panel lives in the host document and
   is positioned over the iframe. That is why it can be `z-index: 40` at all, and
   why removing it cannot disturb CODAP's state.
+- **No jsdom, no test runner.** The goal's boundaries forbid adding an npm
+  dependency, so `t-panel.mjs` carries its own ~180-line DOM shim and a virtual
+  clock. If a future agent is tempted to reach for jsdom: the shim is small
+  *because* the module touches little, and that smallness is itself the evidence
+  that this panel is not entangled with the browser. Growing the shim is a signal
+  to check whether the module has picked up a dependency it should not have.

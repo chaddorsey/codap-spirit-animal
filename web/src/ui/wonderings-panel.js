@@ -10,10 +10,21 @@
  *
  * WHY IT IS BROWSER CODE IN A WAVE OF PURE MODULES. Every other W1/W2 module is
  * node-testable by construction. This one owns geometry and paint, so it cannot
- * be. Its verification is the recorded protocol in
- * `docs/verification/wonderings/panel-notes.md`, which carries the measured
- * anchor, the four states' DOM, and the contrast arithmetic. Nothing here may be
- * asserted that that document does not show how to check by hand.
+ * be *entirely*. That distinction was drawn too widely on 2026-08-28 and cost
+ * the build a defect (see the `retire()` note below): "needs a browser" is true
+ * of colour, layout and computed style, and false of DOM SHAPE, ARIA, timers and
+ * teardown. So verification is now in two halves, and neither replaces the other:
+ *   - `docs/verification/wonderings/t-panel.mjs` — a node test over a hand-written
+ *     DOM shim (no jsdom; the goal forbids new dependencies) with a virtual
+ *     clock. It asserts the declared z-index and `pointer-events`, the live
+ *     region never holding more than one item, `destroy()` releasing its element,
+ *     its resize listener and its timers, and `contentDocument` being re-read at
+ *     every measurement rather than remembered.
+ *   - `docs/verification/wonderings/panel-notes.md` — the recorded manual
+ *     protocol, which carries the measured anchor, the four states' DOM, the
+ *     contrast arithmetic, and the things only a browser can decide: COMPUTED
+ *     z-index against `#codap` and `#stage`, real hit-testing, and that the
+ *     sinking departure looks like weather.
  *
  * WHY IT DOES NOT COPY `ui/dot-badge.js` WHOLESALE. It follows that file's
  * shape — `ensureStyle`, a selector cascade over CODAP's own DOM, cross-iframe
@@ -37,6 +48,14 @@
  * label `#4A5866` is **6.53:1**; both clear WCAG AA's 4.5:1 with room. Ambience
  * is carried by italics, letter-spacing, the absence of chrome and slow motion —
  * never by lowering contrast. See `panel-notes.md` for the arithmetic.
+ *
+ * WHY THERE IS AN EXIT LAYER. A departing wondering is moved out of the live
+ * region and out of normal flow the instant its replacement arrives, into
+ * `.wp-exit`. Before 2026-08-28 it simply stayed where it was for the whole
+ * 1600 ms sink, which meant a screen reader held TWO questions in one
+ * `aria-live` region and the arriving question was pushed down the page by the
+ * departing one's block box. The sink itself is unchanged — the fix is about
+ * flow and the accessibility tree, not about speed.
  *
  * WHY THE MOTION IS SLOW. A 400 ms opacity crossfade is the documented recipe
  * for change blindness: peripheral vision is poor at low-contrast opacity steps
@@ -156,8 +175,31 @@ const CSS = `
   color: #4A5866;
 }
 
-/* The live region. Empty in idle and thinking; one child in showing. */
+/* The stack: one positioned box holding the live region and the exit layer on
+   top of each other, so a departing wondering can be lifted OUT OF FLOW without
+   moving. 'flow-root' keeps .wp-item's 7px top margin inside the stack, which is
+   what makes the in-flow item and the absolutely-positioned exit item land on
+   the same baseline — the departure must not jump when it starts. */
+.wonderings-panel .wp-stack {
+  position: relative;
+  display: flow-root;
+}
+
+/* The live region. Empty in idle and thinking; one child in showing. NEVER two:
+   a retiring wondering is moved to .wp-exit at the moment its replacement is
+   appended here, so a screen reader is never handed two questions at once. */
 .wonderings-panel .wp-live { display: block; }
+
+/* The exit layer. Out of normal flow (so the arriving wondering is not pushed
+   down the page for the 1600 ms of the sink) and outside the live region (so the
+   departing one is no longer in the accessibility tree at all). Contained by
+   .wp-stack, which is 'position: relative'. */
+.wonderings-panel .wp-exit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
 
 /* The wondering. #1F2A33 on #EEF3F6 = 13.07:1. Weight 400, 15px — the goal's
    floors are 400 and 14px, and this clears both. */
@@ -343,7 +385,20 @@ export function createWonderingsPanel({ doc = document, frame = null,
   live.setAttribute('aria-atomic', 'false');
   live.setAttribute('aria-relevant', 'additions');
 
-  root.append(labelEl, live);
+  // The exit layer is a SIBLING of the live region, not a child of it. A
+  // wondering on its way out is moved here, which is simultaneously the two
+  // things it needs to be: out of the live region (so the arriving question is
+  // the only thing announced) and out of normal flow (so it does not push the
+  // arriving question down the page while it sinks).
+  const exit = doc.createElement('div');
+  exit.className = 'wp-exit';
+  exit.setAttribute('aria-hidden', 'true');
+
+  const stack = doc.createElement('div');
+  stack.className = 'wp-stack';
+  stack.append(live, exit);
+
+  root.append(labelEl, stack);
   doc.body.appendChild(root);
 
   const view = doc.defaultView;
@@ -402,16 +457,41 @@ export function createWonderingsPanel({ doc = document, frame = null,
 
   // ---------------------------------------------------------------- content
 
-  /** Sink an item away and remove it. Removals are not announced. */
+  /**
+   * Sink an item away and remove it.
+   *
+   * THE MOVE TO `.wp-exit` IS THE POINT, and it happens NOW, not after SINK_MS.
+   * Verified 2026-08-28: leaving the retiring node in `.wp-live` put two
+   * questions in one `aria-live` region for the whole 1600 ms sink, and — because
+   * `.wp-item` is a block `<p>` and `is-leaving` only changes opacity and
+   * transform — kept its box in normal flow, pushing the ARRIVING wondering 30-odd
+   * px down the page and then letting it snap back. Moving the node here fixes
+   * both at once: `.wp-exit` is outside the live region and outside normal flow.
+   * `aria-hidden` stays as a second line of defence for a reader that re-scans
+   * the subtree mid-exit; `aria-relevant="additions"` means the move itself (a
+   * removal, as far as the live region is concerned) is silent.
+   *
+   * The sink is untouched — `is-leaving` still runs for SINK_MS with the same
+   * travel. Plan `-001` chose a slow dwell and a sinking departure over a fast
+   * crossfade deliberately, because a 400 ms opacity fade is change-blind.
+   */
   function retire(el) {
     if (!el || el.dataset.retiring === '1') return;
     el.dataset.retiring = '1';
-    // Belt and braces against a screen reader re-scanning the region mid-exit:
-    // the node is on its way out and must not be read again.
     el.setAttribute('aria-hidden', 'true');
+    // Hold the backplate at its old height for the duration of the sink, so
+    // taking the item out of flow does not snap the panel shorter under a
+    // wondering that is still visibly on screen. Guarded: `offsetHeight` is a
+    // layout read and is absent in a headless shim.
+    const h = Number(el.offsetHeight);
+    if (Number.isFinite(h) && h > 0) stack.style.minHeight = `${h}px`;
+    exit.appendChild(el);                   // out of the live region, out of flow
     el.classList.remove('is-entering');
     el.classList.add('is-leaving');
-    later(() => el.remove(), SINK_MS);
+    later(() => {
+      el.remove();
+      if (!exit.children.length) stack.style.minHeight = '';
+    }, SINK_MS);
   }
 
   /**
@@ -486,6 +566,10 @@ export function createWonderingsPanel({ doc = document, frame = null,
       // nothing is on screen to animate.
       if (current) { current.remove(); current = null; }
       live.replaceChildren();
+      // Anything mid-sink goes too: it is not on screen to animate, and a node
+      // left in the exit layer would reappear the moment the panel came back.
+      exit.replaceChildren();
+      stack.style.minHeight = '';
     } else {
       reposition();
     }
