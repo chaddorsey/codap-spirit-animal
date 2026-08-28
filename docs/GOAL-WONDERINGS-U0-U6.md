@@ -27,9 +27,10 @@ consecutive green runs, never one. Interleave arms within one page session.
 - **U0** `node docs/verification/wonderings/dataset-model.mjs` exits 0; the
   18-case/4-blank fixture returns **r = 1.00**; `Mammal` and `Order` each produce
   zero observations.
-- **U1** With `?wonderings=1`, panel left edge within 4 px of
-  `[data-testid="tool-shelf-button-undo"]` on 3 consecutive loads. Without the
-  parameter and without the Dashboard toggle: not in the DOM. A full
+- **U1** With `?wonderings=1`, panel **right** edge within 4 px of the **left**
+  edge of `[data-testid="tool-shelf-button-undo"]`, read off
+  `window.__dotWonder.anchorDelta`, on 3 consecutive loads. Without the parameter
+  and without the Dashboard toggle: not in the DOM. A full
   `__demo.run('tutorial2','MakeScatterplot')` completes with all 8 Undo taps landing.
 - **U2** `scene-model.mjs` exits 0. During a `tutorial2` run the SceneModel issues
   **0** requests of its own.
@@ -40,8 +41,9 @@ consecutive green runs, never one. Interleave arms within one page session.
   uptake entries; uptake at 1:59 counts and at 2:01 does not.
 - **U5** `lint.mjs` exits 0 on all 13 named pass/fail cases; `corpus.mjs` emits
   ≥ 40 triples, 100 % lint-clean, and exits non-zero on any failure.
-- **U6** 3 consecutive live runs each show a wondering within 15 s of a univariate
-  Sleep plot; `(await __engine.selfTest()).pass === true`.
+- **U6** 3 consecutive live runs each show a wondering within **22 s** of a
+  univariate Sleep plot (2 s quiet gate + 10 s sweep + one 3.15 s read retry, the
+  channel being lossy by design); `(await __engine.selfTest()).pass === true`.
 
 **Boundaries — do not**
 

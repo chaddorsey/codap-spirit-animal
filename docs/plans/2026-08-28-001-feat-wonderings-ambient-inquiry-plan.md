@@ -191,10 +191,15 @@ Scripts in `docs/verification/wonderings/`; reproducible from disk.
 2. **Therefore §8.4's poll policy is inverted.** Polling on `component:*`
    notifications aims new work at the measured-busiest window. Corrected: sweep
    during quiet, *defer* after a student action until settle.
-3. **§8.4 also suspends on the wrong flag.** `driver.timelineActive` is true only
-   while a path or drag is *sampling* (`web/src/demo/demo-driver.js:235`) — false
-   during the CSV import and during `revert()`. Use `driver.phase !== 'idle'` or
-   an explicit running flag, covering the whole run plus a settle after `revert()`.
+3. **§8.4 also suspends on the wrong flag — and so did this plan's first
+   correction of it.** `driver.timelineActive` is true only while a path or drag
+   is *sampling* (`web/src/demo/demo-driver.js:235`) — false during the CSV import
+   and during `revert()`. This plan originally prescribed `driver.phase !== 'idle'`
+   instead, which has the **identical defect**: `phase` returns to `'idle'` after
+   every tap (`:599`), in the `finally` of every travel and drag (`:540`, `:715`),
+   and `revert()` never sets it at all (`:792`), so the whole eight-Undo revert
+   runs at `'idle'`. The only flag spanning a run is **`driver.active`** (`:441`
+   set, `:497` cleared). Suspend on that, plus a settle after it clears.
 4. **The SceneModel must reuse `driver.snapshot({maxAgeMs})` when a driver
    exists.** The driver's own comment records that duplicate serial polling was
    *"the single biggest cost in a demo."*
@@ -312,15 +317,24 @@ Two holes, not corrections:
 - Evidence scoping against `hiddenCases` / `displayOnlySelectedCases`. A
   correlation over all cases while the graph shows 12 unhidden ones is "wrong but
   loud" in a form the `n` gate does not catch.
-- **The pedagogical literature review** — attempted 2026-08-28 and did not run
-  (session web-search budget exhausted, 200/200). Not blocking, per answer 1, but
-  a prerequisite for any future classroom path. It must establish: whether
-  supplying questions suppresses learners' own question-generation (Chin &
-  Osborne; Koedinger & Aleven's assistance dilemma; scaffolding fading);
-  habituation rates for peripheral displays, which set the currently-guessed cap
-  and cadence; prior art in TinkerPlots / Fathom / InquirySpace / CODAP; whether
-  deliberately fallible prompts help or harm trust calibration; and whether a
-  reversal-within-groups prompt is meaningful at age 10.
+- **The pedagogical literature review — NOT YET STARTED, and the earlier reason
+  given for that was wrong.** This plan previously recorded it as "attempted
+  2026-08-28 and did not run (session web-search budget exhausted, 200/200)."
+  The web budget was genuinely exhausted, but that was never the binding
+  constraint: **`docs/pedagogy-reference/` holds five papers on disk**, needing no
+  network at all, including *Data Moves as a Focusing Lens for Learning to Teach
+  with CODAP*, `ICOTS10_9B3.pdf`, `3_HIGH_SCHOOL_DATA_SCIENCE_A_D.pdf`, `130.pdf`
+  and `qt0mg8m7g6.pdf`. The item was closed on an invalid rationale without
+  checking the shelf already in the repository, and the risk row that reads
+  "recorded, not mitigated" inherited that invalidity. Read the local corpus
+  first and record what it does and does not settle.
+
+  It must establish: whether supplying questions suppresses learners' own
+  question-generation (Chin & Osborne; Koedinger & Aleven's assistance dilemma;
+  scaffolding fading); habituation rates for peripheral displays, which set the
+  currently-guessed cap and cadence; prior art in TinkerPlots / Fathom /
+  InquirySpace / CODAP; whether deliberately fallible prompts help or harm trust
+  calibration; and whether a reversal-within-groups prompt is meaningful at age 10.
 
 ## High-Level Technical Design
 
@@ -472,8 +486,14 @@ appears only when explicitly revealed.
 (z-index ladder: stage 50, panel 100, badge 120).
 
 **Test scenarios:**
-- *Happy path:* with `?wonderings=1`, panel's left edge within 4 px of Undo's left
-  edge, on **three consecutive page loads**.
+- *Happy path:* with `?wonderings=1`, the panel's **right** edge within 4 px of
+  the **left** edge of Undo, on **three consecutive page loads**. (The earlier
+  "left edge within 4 px of Undo's left edge" was self-contradictory — a panel
+  satisfying it either has zero width or covers Undo. `dot-badge.js:171`
+  right-aligns to its anchor the same way.) Expose the measured delta as
+  `window.__dotWonder.anchorDelta` so the metric is read off a number rather than
+  judged from a screenshot, and name the coordinate space: Undo's rect comes from
+  the iframe's `contentDocument`, the panel's from the host page.
 - *Happy path:* without the parameter and without the Dashboard toggle, the panel
   is not visible.
 - *Happy path:* the Dashboard toggle reveals and hides it at any point in a session.
@@ -497,7 +517,16 @@ appears only when explicitly revealed.
 dropped reply for a student action — and that is affordable to run permanently,
 since answer 2 means it always runs.
 
-**Requirements:** R7, R8 · **Dependencies:** U1 (for the mount point)
+**Requirements:** R7, R8 · **Dependencies:** U0 — **not** U1
+
+Dependency corrected on review, in both directions. U2 does **not** need the
+panel: none of its test scenarios touches the DOM, and making a data model wait
+on a widget serializes U3/U4/U5 behind U1 for nothing. `codap-main.js` owns the
+mount wiring in U6, where wiring already lives. But U2 **does** need U0: its
+derived `unplottedAttrs` is *(all attributes of a context) − (plotted)*, and the
+SceneModel has no source for "all attributes" — component reads yield only `x`,
+`y`, `legend` and bounds. Either take the U0 dependency or move `unplottedAttrs`
+up into the observer layer (U3), which already holds both models.
 
 **Files:**
 - Create: `web/src/scene-model.js`
@@ -702,7 +731,10 @@ developers and an honest thread-cost measurement.
 
 **Test scenarios:**
 - *Happy path:* live Mammals session with `?wonderings=1` — a univariate Sleep
-  plot produces one wondering within 15 s, on **three consecutive runs**.
+  plot produces one wondering within **22 s**, on **three consecutive runs**. (The
+  earlier 15 s budget omitted read-retry cost on a channel this plan documents as
+  lossy: 2 s quiet gate + 10 s sweep + one dropped reply at 3.15 s = 15.15 s, so a
+  routine event failed the metric. 22 s covers two retries.)
 - *Edge case:* the referenced graph is deleted → fades with reason `scene-gone`.
 - *Edge case:* the student undoes the triggering action → fades; key does not
   immediately re-arm.
@@ -715,6 +747,186 @@ developers and an honest thread-cost measurement.
   not a count — `behavior-engine.js:615` derives `total` from `results.length`,
   which has legitimately drifted 36 → 43 as behaviors were added, so a hardcoded
   count would fail on the next one. (`docs/PLAYBOOK-behaviors.md`'s "10/10" is stale.)
+
+## Adversarial Review, 2026-08-28 — Open Decisions
+
+Seven reviewers (coherence, feasibility, adversarial, product, design, scope,
+security). Coherence found nothing. The errors they found in fixed values are
+already corrected inline above — the anchor metric, the suspend flag, U2's
+dependencies, the 15 s budget, the pedagogy rationale. **What follows are the
+decisions that are the owner's, not the implementer's.** Each is recorded with
+its evidence so a fresh reader does not re-derive it.
+
+### D1. The uptake metric is a compliance metric, and it punishes the register
+**Three reviewers independently, highest confidence in the review.** The metric
+is "the student plotted the pair we named" — which is precisely a tutor's success
+criterion, so the register work (no imperatives, no second person, openness) is
+undone at the evaluation layer rather than in the prose. Worse, it is
+*structurally* biased: an `openness: 'open'` wondering like *Does height matter?*
+has a single-attribute `focus` and **can never satisfy an unordered-pair match**,
+so every open wondering scores zero by construction. Rank templates by uptake and
+the survivors are exactly the closed, checkable, single-right-answer ones §9.2
+calls the teacher register. `openness` is a field the system can only punish.
+
+And the origin's sharpest sentence was dropped in this plan and must be restored
+next to the metric, not only in the risk table: **if supplying questions
+suppresses a student's own questions, uptake goes UP.** High uptake is the
+signature of both success and the most serious failure mode.
+
+*Options:* (a) declare uptake a diagnostic that may not rank templates and may not
+gate M1 or M3; (b) add a second signal open wonderings can score on — any
+exploration touching the wondering's `focus` attributes — and report
+`matched` / `diverged` / `none` as three buckets rather than one hit rate. A
+student who reads a wondering and plots a *different* pair currently scores as a
+failure, and that is arguably the best outcome available.
+
+### D2. There is no population to measure, so M3's gate cannot be met
+Demo activity is filtered out entirely (answer 3), the panel is hidden by default
+(answer 2), and the ledger is per-page-load. The only uptake source is a human
+hand-driving the page — in practice the person who wrote the templates and knows
+what each says before it appears. On Mammals, the significance floor admits two
+numeric pairs, `legend-separation` admits none (D3), retired keys never re-arm,
+and the cap is 1: **the modal session is a labelled empty panel plus roughly one
+italic line.** "Wallpaper detected by uptake trending to zero" has no denominator.
+
+*Options:* name a concrete M0 protocol (how many sessions, whose hands, over what
+period) and keep U4 in full; or cut U4 to a minimal shown-keys set inside U5,
+defer the ledger to the first milestone with subjects, and restate M3's gate as an
+owner judgment call rather than a metric.
+
+### D3. `legend-separation` has no live surface — verified
+Confirmed by running the guards against both shipping datasets on 2026-08-28:
+
+```
+MAMMALS   Mammal  cardinality 12  smallest 1   IDENTIFIER -> excluded
+          Order   cardinality  7  smallest 1   guards kill it
+CATS      Name    cardinality  5  smallest 1   IDENTIFIER -> excluded
+          Coat    cardinality  5  smallest 1   IDENTIFIER -> excluded
+```
+
+One of three M0 observers — the one producing the design's headline example
+(*Do the colours stack up, or mix together?*) and which §5 calls "the clearest
+demonstration of why real computation beats scripting" — can never fire in any
+session U6 can run. Its happy-path test uses a synthetic fixture that exists
+nowhere in the product.
+
+*Options:* add a viable categorical to `web/src/demo/fixture.js` (a Diet or
+Habitat column, 3 groups of ≥3) and re-run `against-real-fixture.mjs` to confirm
+it clears the guards; or drop `legend-separation` from M0 and admit M0 is a
+two-observer experiment. Do not ship an observer whose only passing test uses a
+fixture no student will open.
+
+### D4. Build order front-loads the verifiable and back-loads the falsifiable
+**Three reviewers independently.** U0, U2, U3 and U4 are machinery whose
+correctness is provable from fixtures and whose value is entirely conditional on
+premises not tested until U6. The plan's own sentence gives the game away: *"The
+corpus file is the review artifact to circulate — not the code."* Producing that
+corpus needs U0 + U3 + the realizer only — the observers are pure by decision and
+cannot tell a scene literal from a live SceneModel. U1, U2, U4 and U6 contribute
+nothing to it.
+
+Note also that the origin's §15.7 proposed exactly this scope cut, and this plan
+resolved ten technical questions while dropping §15.7, §15.3 (is one visible
+wondering too conservative to test the idea at all) and §15.5 (is template
+determinism a liability). By the project's own convention, a fresh reader
+re-proposes whatever a doc does not explicitly close.
+
+*Options:* resequence as **M0a = U0 + U3 + realizer + corpus** (a node script, no
+browser, no CODAP), circulate the corpus, and make M0b (panel, scene model,
+ledger, wiring) conditional on it reading well. Or run the cheapest falsification
+first: U1 is already dependency-free, so **U1 plus three hardcoded lines in front
+of one 10-year-old** answers the ambient-attribution question (D5), the register
+question, and the noticeability question before U2/U3/U4 exist.
+
+### D5. The ambient premise is load-bearing, untested, and M1 is built to falsify it
+Nothing in U0–U6 checks whether a child reads the text as unattributed. Three
+things push the other way: the panel lives in the same host-document overlay layer
+whose only other occupants are Dot's stage and badge; Dot is the sole animate
+agent on screen and `CHARACTER.md`'s first core trait is *Curious*, which is what
+the noun "Wonderings" names; and M1's attention behaviour — Dot swims to the
+panel, sits beneath the line, looks from the line to the graph — is a textbook
+**deictic gesture**, the exact move by which a child assigns an utterance to a
+speaker.
+
+If it collapses, it collapses toward the forbidden state: Dot becomes the source
+of a question the student cannot answer, i.e. a quizzer, which is what
+`CHARACTER.md:43` rules out. Ask two or three children "where did that come
+from?" If they say Dot, the ambient premise is dead and M1's attention link must
+be cut, not deferred. Cheapest, highest-leverage measurement available.
+
+### D6. The significance floor contradicts R6
+The floor (|r| ≥ 0.576 at n = 12) was added to stop "wrong but loud." Its effect
+is that the panel only ever wonders about relationships already established at
+p < .05 — **so every wondering pans out**, and R6's "true wonderings that do not
+always prove true" is unreachable. The origin flagged this tension explicitly ("a
+system that only ever wonders about things that pan out teaches students that the
+panel is an oracle"); this plan kept the mitigation and dropped the tension.
+Decide: withdraw R6 for M0 and call the panel a high-precision suggester, or admit
+a band below the floor tagged `openness: 'open'` whose phrasing does not
+presuppose the relationship.
+
+### D7. `wise-attend` is a free experiment the plan treats only as a risk
+`web/src/insight.js:120-127` already emits `rel:A:B` from the same correlations,
+and `web/src/behaviors.js:1160` already delivers them to students as Dot's
+attention — shipped, today. Instrumenting it with U4's uptake predicate gives a
+**measured baseline** for "does a second-question nudge move a student to a next
+plot" in about a day, against six units of construction. If attention-only nudges
+move nobody, italic text is unlikely to. It also reframes U3's mutual-suppression
+work from risk mitigation into the actual experiment: attention alone vs attention
+plus text.
+
+### D8. U0 should probably ship alone, first
+The pairwise-correlation bug and the missing identifier exclusion are corrupting
+`wise-attend`'s rankings **right now** — Dot is currently capable of staring
+fascinatedly at a spurious relationship on the shipping fixture. That is a live
+defect in shipped code, not a prerequisite for a speculative feature. Bundling it
+with six speculative units makes the bug fix inherit their risk of abandonment.
+
+### D9. Smaller, but decide before U1 starts
+- **No visual specification.** "Italic, light, lower contrast" is a mood. The plan
+  never says whether the panel has a background, so no contrast ratio can be
+  computed at all — and the audience is 10-year-olds on classroom projectors and
+  cheap Chromebooks. Set a stated backplate colour, font-size ≥ 14 px, weight
+  ≥ 400, contrast ≥ 4.5:1, and carry ambience with italic, letter-spacing, absence
+  of chrome and slow motion instead.
+- **No reading-level constraint.** Templates interpolate raw column names:
+  *"How does Ht_cm go with msleep?"* is lint-clean and unreadable. And the
+  showcase phrasing *"stack up"* is idiomatic. Needs an attribute-name rendering
+  rule with a suppress-if-unreadable fallback, a word-count cap, and a
+  banned-abstract-noun list.
+- **The 70-character cap is a length cap, not a fit cap.** Italic proportional
+  text varies ~2× in width by glyph, and M0's cap is one line, so a wrap is
+  undefined behaviour at the moment it matters.
+- **The generic fade is the one piece of AI slop in the document.** The plan names
+  a strong product-specific concept — "from the sky", "like weather", in a product
+  whose character is aquatic — and then specifies a 400 ms opacity fade,
+  indistinguishable from every AI assistant sidebar. A slow rise and a sinking
+  departure would be legibly *this* product's and would also be more perceptible
+  in peripheral vision than opacity at low contrast.
+- **Phantom fields.** `LearnerModel` appears once, in the mermaid diagram, with no
+  unit, file, test or metric. `openness` appears once, in the contract block, with
+  no observer setting it and no consumer reading it. Feasibility adds that the
+  obvious `learner` source (`engine.state`) exposes `idleSeconds` via a getter over
+  `performance.now()`, which would make observers time-dependent and let the
+  staleness rule retire wonderings from the clock advancing with no scene change.
+  Either give them units or delete them.
+- **`DemoDriver.api()` is not available to an always-on pipeline.** No driver
+  exists cross-origin or for up to 60 s at boot (`codap-main.js:225`, `:230`), and
+  `driver.aborted` latches until the next `begin()` (`demo-driver.js:258`), so a
+  stray `cancel()` would silently kill pipeline reads for the rest of the session.
+  DemoDriver also imports `three` transitively, so U2's error-path scenarios
+  cannot run as a dependency-free `.mjs`. Extract the read discipline (4 × 3000 ms,
+  writes never retried) into a standalone module both callers use.
+- **The always-on pipeline has no M0 consumer.** A hidden panel displays nothing,
+  so there is no uptake to record — it buys nothing observable while importing the
+  plan's top-listed risk. Answer 2 is yours; the benefit it purchases is simply
+  never stated. If the intent is warm state on mid-session reveal, say so and scope
+  it to "starts on first reveal, then runs for the session."
+- **Security, M3-shaped.** Once egress exists, "off" hides the panel but would not
+  stop Observations leaving the browser — gate egress on visibility or its own
+  default-off flag, decided now while the flag semantics are being written. And
+  "no case values" bounds *volume*, not *sensitivity*: attribute and dataContext
+  names are student-authored free text.
 
 ## Phases Beyond M0
 
