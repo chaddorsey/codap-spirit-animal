@@ -926,6 +926,51 @@ over time in the one study that measured it, whether or not it was faded.** For 
 ambient companion that is the failure mode to watch, and no education study in the
 review measured it.
 
+### D11. Chad's five question types are stems over data moves — and they shrink the build
+Added 2026-08-28: *"What does the distribution of ___ look like?"*, *"How do the
+means/medians of those compare?"*, *"What if we sort by ___?"*, *"How would that
+look grouped by ___?"*, *"What if we only looked at ___?"*
+
+These are a **different artifact** from the Tier-A observers, in three ways that
+each resolve a finding above. Measured by
+`docs/verification/wonderings/stems-over-datamoves.mjs`:
+
+1. **They are stems, not filled sentences.** The blank stays empty for the student
+   to fill, so the system supplies the *form* and leaves *content selection* to
+   the learner. §4a of `pedagogy-literature.md` calls this the untested crux and
+   the one dimension where the thin evidence consistently favours stems —
+   Rosenshine's generic question stems were the most effective prompt type in the
+   meta-analysis (ES 1.12), while fully-formed generic questions scored worst
+   within the same category.
+2. **They prompt data moves, not attribute pairs.** Grouping, filtering,
+   summarizing and ordering are the project's own pedagogical spine
+   (`docs/DATA-MOVES.md`), which answers the product reviewer's premise objection
+   that Tier-A wonderings prompt plotting — a *non*-move — while `suggestMoves`
+   already ranks the moves themselves.
+3. **They have live surface where the correlation observers barely do.** On the
+   shipping Mammals fixture: **21 distinct wonderings from the stems versus 2**
+   from `second-dimension`/`unplotted-partner` (only two pairs clear |r| ≥ 0.576
+   at n = 12) and **0** from `legend-separation`.
+
+**And the existing ranker already works.** `suggestMoves` from `web/src/insight.js`
+imports and runs unmodified in node — verified — returning move-class suggestions
+ranked with novelty dominating. A stem realizer can sit directly on top of it
+rather than behind a new observer layer.
+
+**Consequences for U0–U6.** Most of U0's correlation machinery stops being
+load-bearing: *"What does the distribution of Sleep look like?"* needs no
+correlation, no Spearman, and no significance floor. What survives from U0 is the
+**pairwise-complete fix and identifier exclusion** — the first because it is a
+live defect corrupting `wise-attend` today (D8), the second because without it the
+stems will offer *"the distribution of Mammal"*. U3's new observer layer largely
+dissolves for the stem types.
+
+**One gap the stems inherit.** Grouping produced **zero** wonderings on Mammals,
+for the same reason `legend-separation` cannot fire (D3): no low-cardinality
+categorical ships. Adding a `Diet` or `Habitat` column of 3 groups with ≥3 members
+to `web/src/demo/fixture.js` fixes both at once, and is the single cheapest
+unblocking change available.
+
 ### D9. Smaller, but decide before U1 starts
 - **No visual specification.** "Italic, light, lower contrast" is a mood. The plan
   never says whether the panel has a background, so no contrast ratio can be
