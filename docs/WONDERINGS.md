@@ -1,5 +1,22 @@
 # Wonderings — ambient inquiry prompts over a live CODAP document
 
+> **REVIEWED 2026-08-28. Fourteen claims below are corrected in
+> `docs/plans/2026-08-28-001-feat-wonderings-ambient-inquiry-plan.md`.** This
+> document is left unedited on purpose, per the `P#-NOTES` convention — the
+> corrections live in the plan alongside the measurement that forced each one.
+> Read the plan's "Corrections to the Origin Document" before acting on
+> anything here.
+>
+> **Three you must not act on as written.** §4.2's `[VERIFIED]` frame-gap
+> figure is not verified — it describes a measurement
+> `docs/DRAG-GHOST-CONUNDRUM.md` §7 records as *"prepared and then abandoned"*,
+> inside material `docs/EXPERIMENT-RENDER-STARVATION.md` later retracted, and
+> what survived says the opposite: an idle page is quiet and stalls follow the
+> press. §8.4's poll policy is built on that error and aims work at the
+> busiest window. And §5's `legend-separation` observer fires confidently and
+> wrongly on the Mammals dataset the tutorials actually ship
+> (`docs/verification/wonderings/against-real-fixture.mjs`).
+
 **Status: design, not yet built. Written 2026-08-28 for adversarial review.**
 
 One sentence: a toggleable panel in CODAP's menu bar shows a small number of
