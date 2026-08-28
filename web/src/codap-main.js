@@ -13,6 +13,9 @@ import { installRecorder } from './demo/record-drag.js';
 import { installDragDomWatcher } from './demo/watch-drag-dom.js';
 import { installDashboardBadge } from './ui/dot-badge.js';
 import { createWonderingsPanel } from './ui/wonderings-panel.js';
+import { createWhiteboard } from './ui/whiteboard.js';
+import * as wbModel from './wonderings/whiteboard-model.js';
+import { makeNudgeBehavior } from './wonderings/nudge.js';
 import { createSceneModel, isDriverSuspended } from './scene-model.js';
 import {
   buildDatasetModel, governorReducer, initialGovernorState, intervalSeconds,
@@ -53,6 +56,8 @@ const TUTORIAL_DOCS = {
 //   ?fixture=1  create the 12-row Mammals dataset + case table once CODAP connects
 const QUIET_FLAG = new URLSearchParams(location.search).get('quiet') === '1';
 const FIXTURE_FLAG = new URLSearchParams(location.search).get('fixture') === '1';
+//   ?whiteboard=1  the student writes their own wonderings; REPLACES the ambient panel
+const WHITEBOARD_FLAG = new URLSearchParams(location.search).get('whiteboard') === '1';
 
 const stage = new Stage(document.getElementById('stage'));
 const axo = await Axolotl.load(stage);
@@ -590,6 +595,36 @@ let dwellTimer = null;
 const saidKeys = new Set();          // Observation.key values already shown this session
 let datasetCache = { at: null, model: null };
 
+// --------------------------------------------------------- the whiteboard
+// A PARALLEL EXPERIMENT that REPLACES the ambient panel, per Chad — never both,
+// because two sources of questions on one screen sets up "the computer's
+// questions versus mine", which is the comparison the ownership evidence says
+// to avoid (docs/verification/wonderings/pedagogy-literature.md §3).
+//
+// Session-scoped and nowhere else: no sessionStorage, no network, no
+// cross-student anything. Wiping the tab wipes the board, which is what the
+// board's own subtitle promises the student.
+let whiteboard = null;
+const board = [];                    // student wonderings, in the order written
+const movedAttrs = new Set();        // columns touched by a data move this session
+
+/** Every column a data move mentioned — the other half of "investigating". */
+bridge.addEventListener('datamove', (e) => {
+  const d = e.detail?.detail ?? {};
+  for (const n of [d.attribute, d.attributeName]) if (typeof n === 'string' && n) movedAttrs.add(n);
+});
+
+const boardScene = () => sceneModel?.scene
+  ?? { graphs: [], derived: { plottedAttrs: [], unplottedAttrs: [], attrPairsPlotted: [], sceneVersion: 0 } };
+
+/** A case table's screen bounds — where Dot glances after looking at the board. */
+function tableBounds() {
+  for (const c of engine.state.components.values()) {
+    if (/table/i.test(c.type ?? '') && c.bounds) return c.bounds;
+  }
+  return null;
+}
+
 /** The DatasetModel for the current analysis, rebuilt only when it changed. */
 function currentDataset() {
   const a = latestAnalysis;
@@ -749,6 +784,75 @@ function unmountWonderings() {
 }
 
 if (wonderingsOn) mountWonderings();
+
+// --------------------------------------------------------- whiteboard mount
+function mountWhiteboard() {
+  if (whiteboard) return;
+  unmountWonderings();                       // it REPLACES the ambient panel
+  whiteboard = createWhiteboard({
+    doc: document,
+    frame: document.getElementById('codap'),
+    model: wbModel,
+    getAttrs: () => currentDataset()?.attrs ?? [],
+    getBoard: () => board,
+    onPost: (stemId, filled) => {
+      const w = wbModel.createWondering(stemId, filled, performance.now() / 1000);
+      if (!w) return;
+      if (board.some((x) => x.key === w.key)) return;   // one wondering is one wondering
+      board.push(w);
+      mindLine(`board + ${w.text}`, '#0b5a6b');
+      whiteboard.refresh();
+    },
+    onWipe: (key) => {
+      const i = board.findIndex((x) => x.key === key);
+      if (i >= 0) { mindLine(`board − ${board[i].text}`, '#57707a'); board.splice(i, 1); }
+    },
+  });
+
+  // Dot's nudge, registered at runtime — behaviors.js and behavior-engine.js are
+  // both untouched, per docs/PLAYBOOK-behaviors.md.
+  engine.add(makeNudgeBehavior({
+    getTarget: () => wbModel.nudgeTarget(board, boardScene(), movedAttrs, performance.now() / 1000),
+    boardRect: () => (whiteboard && !whiteboard.el.hidden ? whiteboard.el.getBoundingClientRect() : null),
+    tableBounds,
+    onNudged: (key) => {
+      const w = board.find((x) => x.key === key);
+      if (!w) return;
+      w.nudges = (w.nudges ?? 0) + 1;
+      w.lastNudgeAt = performance.now() / 1000;
+    },
+    log: (t) => mindLine(t, '#7048e8'),
+  }));
+  logLine('whiteboard: on (ambient wonderings off)', '#0b5a6b');
+}
+
+function unmountWhiteboard() {
+  if (!whiteboard) return;
+  whiteboard.destroy();
+  whiteboard = null;
+  engine.remove('wonder-nudge');
+}
+
+if (WHITEBOARD_FLAG) mountWhiteboard();
+
+// The bench handle, mirroring __dotWonder. `summary()` is the intra-student
+// diversity measure — written, distinct columns named, and how many were
+// actually investigated. Nothing here leaves the page.
+window.__dotBoard = {
+  summary: () => wbModel.boardSummary(board, boardScene(), movedAttrs),
+  list: () => board.map((w) => ({
+    text: w.text,
+    state: wbModel.investigationState(w, boardScene(), movedAttrs),
+    nudges: w.nudges ?? 0,
+  })),
+  nudgeNow: () => {
+    const t = wbModel.nudgeTarget(board, boardScene(), movedAttrs, performance.now() / 1000);
+    if (!t) return '(nothing due — see __dotBoard.list())';
+    engine.forceFire('wonder-nudge');
+    return t.wondering.text;
+  },
+  moved: () => [...movedAttrs],
+};
 window.__wonderings = {
   isOn: () => wonderingsOn,
   panel: () => wonderingsPanel,
