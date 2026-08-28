@@ -7,3 +7,11 @@ dist/
 # wrangler local state (pages dev cache)
 web/.wrangler/
 web/dist/
+
+# Local secrets. Nothing here holds a key today, but the CODAP proxy is a
+# Cloudflare Pages Function, so the moment anything server-side needs one it
+# lands in .dev.vars — and a key committed once is a key rotated forever.
+.dev.vars
+.env
+.env.*
+!.env.example
