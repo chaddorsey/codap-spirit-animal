@@ -41,7 +41,7 @@ consecutive green runs, never one. Interleave arms within one page session.
 - **U5** `lint.mjs` exits 0 on all 13 named pass/fail cases; `corpus.mjs` emits
   ≥ 40 triples, 100 % lint-clean, and exits non-zero on any failure.
 - **U6** 3 consecutive live runs each show a wondering within 15 s of a univariate
-  Sleep plot; `await __engine.selfTest()` passes at its recorded count.
+  Sleep plot; `(await __engine.selfTest()).pass === true`.
 
 **Boundaries — do not**
 
@@ -58,7 +58,7 @@ consecutive green runs, never one. Interleave arms within one page session.
 - `docs/CHARACTER.md` would have to change
 - the panel cannot avoid overlapping Undo/Redo at 1024 px — that is a design
   change, not a bug fix
-- `__engine.selfTest()` drops below its recorded count
+- `__engine.selfTest()` reports `pass: false` and the cause is not in our files
 - any nonzero spend
 
 `attributeList` returning an unusable shape is **not** a bail-out: fall back to

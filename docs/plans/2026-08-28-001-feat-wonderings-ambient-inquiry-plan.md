@@ -711,7 +711,10 @@ developers and an honest thread-cost measurement.
 - *Edge case:* page reload → ledger resets (assert, do not assume).
 - *Error path:* CODAP disconnects → panel returns to `idle`, no console exceptions.
 - *Integration:* a full demo run produces zero ledger uptake entries.
-- *Integration:* `await __engine.selfTest()` still passes at its recorded count.
+- *Integration:* `(await __engine.selfTest()).pass === true`. Assert the boolean,
+  not a count — `behavior-engine.js:615` derives `total` from `results.length`,
+  which has legitimately drifted 36 → 43 as behaviors were added, so a hardcoded
+  count would fail on the next one. (`docs/PLAYBOOK-behaviors.md`'s "10/10" is stale.)
 
 ## Phases Beyond M0
 
