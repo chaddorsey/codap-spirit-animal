@@ -7,7 +7,7 @@
  *
  *   node docs/verification/wonderings/distribution-shape.mjs
  */
-import { MAMMALS } from '../../../web/src/demo/fixture.js';
+import { MAMMALS, MAMMALS_COLLECTION } from '../../../web/src/demo/fixture.js';
 
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
 const sd = (a) => Math.sqrt(mean(a.map((v) => (v - mean(a)) ** 2))) || 1;
@@ -43,7 +43,23 @@ function eta2(rows, cat, num) {
   return +(between / total).toFixed(2);
 }
 
-const NUMERIC = ['LifeSpan', 'Height', 'Mass', 'Sleep', 'Speed'];
+// Derived from the fixture's own declared schema, NOT hardcoded. 2026-08-28:
+// these lists used to be literal copies of the fixture's columns, so the script
+// went on reporting the pre-Diet answer about a fixture that no longer existed.
+const byKind = (t) => MAMMALS_COLLECTION.attrs.filter((a) => a.type === t).map((a) => a.name);
+const NUMERIC = byKind('numeric');
+const CATEGORICAL = byKind('categorical');
+
+const GROUP_COUNT_CEILING = 4;   // groups; more than 4 over 12 cases cannot be compared honestly
+const MIN_GROUP_SIZE = 3;        // cases; below 3 a "mean" is one animal wearing a hat
+const ETA2_FLOOR = 0.30;         // unitless 0..1; below this the groups visibly overlap
+
+/** Cases per category. */
+const groupSizes = (cat) => {
+  const out = {};
+  for (const r of MAMMALS) out[String(r[cat])] = (out[String(r[cat])] ?? 0) + 1;
+  return out;
+};
 
 console.log('DISTRIBUTION SHAPE — what backs "What does the distribution of ___ look like?"');
 console.log('='.repeat(76));
@@ -62,11 +78,26 @@ for (const a of NUMERIC) {
 
 console.log('\nGROUP SEPARATION — what backs "How do the means compare?" / "grouped by ___?"');
 console.log('='.repeat(76));
-const cats = ['Order'];   // Mammal is an identifier, excluded
+// `Mammal` is an identifier (cardinality === caseCount) and is excluded here,
+// not merely down-ranked: grouping by it produces 12 groups of 1.
+const cats = CATEGORICAL.filter((c) => new Set(MAMMALS.map((r) => r[c])).size < MAMMALS.length);
+const earnedComparisons = [];
 for (const c of cats) {
-  const card = new Set(MAMMALS.map((r) => r[c])).size;
-  console.log(`  ${c} has ${card} groups over ${MAMMALS.length} cases — too many to compare honestly`);
-  for (const n of NUMERIC) console.log(`     ${(c + ' -> ' + n).padEnd(22)} eta2=${eta2(MAMMALS, c, n)}  (inflated by group count)`);
+  const sizes = groupSizes(c);
+  const card = Object.keys(sizes).length;
+  const smallest = Math.min(...Object.values(sizes));
+  const tooMany = card > GROUP_COUNT_CEILING;
+  const tooSmall = smallest < MIN_GROUP_SIZE;
+  console.log(`  ${c} has ${card} groups over ${MAMMALS.length} cases, smallest ${smallest}` +
+    (tooMany || tooSmall ? ' — too thin to compare honestly' : ' — comparable'));
+  for (const n of NUMERIC) {
+    const e = eta2(MAMMALS, c, n);
+    const earned = !tooMany && !tooSmall && e >= ETA2_FLOOR;
+    if (earned) earnedComparisons.push(`${c} -> ${n}`);
+    console.log(`     ${(c + ' -> ' + n).padEnd(22)} eta2=${String(e).padStart(4)}  ` +
+      (tooMany || tooSmall ? '(inflated by group count — not earned)'
+        : earned ? 'EARNED' : 'groups overlap — not earned'));
+  }
 }
 
 console.log('\nSORT-WORTHINESS — what backs "What if we sort by ___?"');
@@ -89,5 +120,11 @@ const interesting = NUMERIC.filter((a) => {
 });
 console.log(`  ${interesting.length} of ${NUMERIC.length} numeric attributes have an EARNED distribution`);
 console.log(`  wondering: ${interesting.join(', ')}`);
-console.log('  Group-comparison wonderings: 0 earned — Order has 7 groups over 12 cases.');
-console.log('  (Same blocker as legend-separation. A 3-group Diet/Habitat column fixes both.)');
+console.log(`  Group-comparison wonderings: ${earnedComparisons.length} earned` +
+  (earnedComparisons.length ? ` — ${earnedComparisons.join(', ')}` : ''));
+if (!earnedComparisons.length) {
+  console.log('  (Same blocker as legend-separation. A 3-group Diet/Habitat column fixes both.)');
+} else {
+  console.log('  (Was 0 before W0 added `Diet`: `Order` is 7 groups over 12 cases,');
+  console.log('   smallest group 1, and is still correctly refused above.)');
+}

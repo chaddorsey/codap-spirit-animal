@@ -8,7 +8,7 @@
  * The point is not to admire the output. It is to find out whether the real
  * shipping dataset produces good wonderings or embarrassing ones.
  */
-import { MAMMALS } from '../../../web/src/demo/fixture.js';
+import { MAMMALS, MAMMALS_COLLECTION } from '../../../web/src/demo/fixture.js';
 
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
 const sd = (a) => Math.sqrt(mean(a.map((v) => (v - mean(a)) ** 2))) || 1;
@@ -45,8 +45,11 @@ function separation(rows, cat, n) {
            smallestGroup: Math.min(...sizes) };
 }
 
-const NUMERIC = ['LifeSpan', 'Height', 'Mass', 'Sleep', 'Speed'];
-const CATEGORICAL = ['Mammal', 'Order'];
+// Derived from the fixture's own declared schema, NOT hardcoded — 2026-08-28,
+// so that a column added to the fixture cannot go unmeasured here.
+const byKind = (t) => MAMMALS_COLLECTION.attrs.filter((a) => a.type === t).map((a) => a.name);
+const NUMERIC = byKind('numeric');
+const CATEGORICAL = byKind('categorical');
 
 console.log(`\nMammals fixture: ${MAMMALS.length} cases\n${'='.repeat(64)}`);
 
