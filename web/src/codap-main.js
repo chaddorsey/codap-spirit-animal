@@ -12,6 +12,12 @@ import { installTracer } from './demo/trace-input.js';
 import { installRecorder } from './demo/record-drag.js';
 import { installDragDomWatcher } from './demo/watch-drag-dom.js';
 import { installDashboardBadge } from './ui/dot-badge.js';
+import { createWonderingsPanel } from './ui/wonderings-panel.js';
+import { createSceneModel, isDriverSuspended } from './scene-model.js';
+import {
+  buildDatasetModel, governorReducer, initialGovernorState, intervalSeconds,
+  nextWondering, PARTIAL_FRAMING_LABEL,
+} from './wonderings/index.js';
 import { P1_DEMOS } from './demo/demos-p1.js';
 import { ensureMammals, DEMO_CSV } from './demo/fixture.js';
 import { parse, toLines, coerce } from './demo/demo-lang.js';
@@ -403,35 +409,100 @@ for (const b of document.querySelectorAll('[data-demo]')) {
   };
 }
 
+// ------------------------------------------------------------- Wonderings: state
+// Declared here, above "Dot's mind", because the mind panel reports on them and
+// a `let` read before its declaration is a TDZ throw, not an undefined.
+//
+// OFF BY DEFAULT AND ABSENT FROM THE DOM WHEN OFF. `?wonderings=1` turns it on
+// for a session; the Dashboard toggle turns it on or off at any time. When off
+// the panel is not hidden — it is destroyed, so nothing it installed (a 2 s
+// reposition poll, a resize listener, a shared <style>) survives being switched
+// off. `createWonderingsPanel` returns the `destroy()` that makes that possible.
+const WONDERINGS_FLAG = new URLSearchParams(location.search).get('wonderings') === '1';
+let wonderingsOn = WONDERINGS_FLAG;
+let governorState = initialGovernorState();
+
 // ------------------------------------------------------------- Dot's mind
 // Full reasoning exposed: Phase 7 (data-move reactions) in blue, Phase 8
 // (insight-driven suggestions, with live rationale) in dark red.
 const MIND_COLORS = { 7: '#1c63d6', 8: '#8b1a1a' };
-engine.onFire = (b, event, escalated) => {
-  const m = MIND[b.id];
-  const div = document.createElement('div');
-  const desc = m?.describe?.(event, engine.state) ?? '(no description)';
-  div.textContent = `▶ ${b.id}${escalated ? ' ESC' : ''} — ${desc}`;
-  div.style.color = MIND_COLORS[m?.phase] ?? '#555';
+/** The one seam anything is allowed to write a line of reasoning through. */
+function mindLine(text, color = '#555') {
   const box = $('#mindLog');
+  if (!box) return;
+  const div = document.createElement('div');
+  div.textContent = text;
+  div.style.color = color;
   box.appendChild(div);
   while (box.childElementCount > 60) box.firstChild.remove();
   box.scrollTop = box.scrollHeight;
+}
+engine.onFire = (b, event, escalated) => {
+  const m = MIND[b.id];
+  const desc = m?.describe?.(event, engine.state) ?? '(no description)';
+  mindLine(`▶ ${b.id}${escalated ? ' ESC' : ''} — ${desc}`, MIND_COLORS[m?.phase] ?? '#555');
 };
+
+// The last full analysis, INCLUDING its raw `rows` — the wonderings pipeline
+// needs the cases and `analyzeDataset` already paid for the round trip.
+// Deliberately not stored on `engine.state.insight`, which behaviors read and
+// which would then carry the whole dataset for the life of the session.
+let latestAnalysis = null;
+/** Last `nextWondering()` verdict, for the mind panel's standing readout. */
+let lastWonderingReport = null;
+
+/**
+ * Rewrite the "Dataset analysis" box. ONE writer, because two writers to one
+ * `textContent` would erase each other; the wonderings section is appended from
+ * cached state rather than by a second owner of the node.
+ */
+function renderMindAnalysis() {
+  const a = latestAnalysis;
+  if (!a) { $('#mindAnalysis').textContent = 'no populated dataset yet'; return; }
+  const refusals = (a.separations ?? []).filter((s) => !s.qualifies && s.reason === 'identifier');
+  const lines = [
+    `${a.context}: ${a.caseCount} cases, ${a.attrs.length} attrs `
+      + `(${a.attrs.map(x => `${x.name}:${x.kind === 'numeric' ? 'num' : `cat×${x.cardinality}`}`
+        + `/${x.role}`).join(', ')})`,
+    `outliers: ${a.outliers.length ? a.outliers.map(o => `${o.attr}=${o.value} (z=${o.z})`).join('; ') : 'none'}`,
+    // `qualifies` is the n-floor, not a flat |r| — see insight.js's suggestMoves.
+    `correlations: ${a.correlations.length
+      ? a.correlations.map(c => `${c.a}×${c.b} r=${c.r}${c.qualifies ? '*' : ''}`).join('; ')
+      : 'n/a'}`,
+    `separations: ${(a.separations ?? []).filter(s => s.qualifies)
+      .map(s => `${s.cat}×${s.num} eta²=${s.eta2.toFixed(2)}`).join('; ') || 'none qualify'}`
+      + (refusals.length ? `  [refused as identifier: ${refusals.length}]` : ''),
+    `hierarchical: ${a.isHierarchical ? 'yes' : 'no (flat)'}`,
+  ];
+  const w = lastWonderingReport;
+  if (w) {
+    lines.push('');
+    lines.push(`wonderings: ${wonderingsOn ? 'on' : 'off'} — student is ${w.activity}, `
+      + `${w.offer ? 'offering' : `quiet (${w.reason})`}; `
+      + `interval ${Math.round(intervalSeconds(governorState))}s, `
+      + `${governorState.offers} offered, ${w.wonderings.length} earned / `
+      + `${w.suppressed.length} suppressed this pass`);
+    for (const cand of w.wonderings.slice(0, 3)) {
+      lines.push(`  · [${cand.provenance.family}] ${cand.text}`);
+    }
+    for (const s of w.suppressed.slice(0, 2)) {
+      lines.push(`  × [${s.provenance.family}] ${s.provenance.focus.join(', ')} — ${s.provenance.reason}`);
+    }
+  }
+  $('#mindAnalysis').textContent = lines.join('\n');
+}
 
 async function refreshInsight() {
   try {
     const analysis = await analyzeDataset(bridge);
-    if (!analysis) { $('#mindAnalysis').textContent = 'no populated dataset yet'; return; }
+    if (!analysis) { latestAnalysis = null; renderMindAnalysis(); return; }
     const suggestions = suggestMoves(analysis, engine.state.dataMoves);
-    engine.state.insight = { ...analysis, suggestions };
-    const a = analysis;
-    $('#mindAnalysis').textContent =
-      `${a.context}: ${a.caseCount} cases, ${a.attrs.length} attrs `
-      + `(${a.attrs.map(x => `${x.name}:${x.kind === 'numeric' ? 'num' : `cat×${x.cardinality}`}`).join(', ')})\n`
-      + `outliers: ${a.outliers.length ? a.outliers.map(o => `${o.attr}=${o.value} (z=${o.z})`).join('; ') : 'none'}\n`
-      + `correlations: ${a.correlations.length ? a.correlations.map(c => `${c.a}×${c.b} r=${c.r}`).join('; ') : 'n/a'}\n`
-      + `hierarchical: ${a.isHierarchical ? 'yes' : 'no (flat)'}`;
+    // `rows` is dropped here on purpose — see `latestAnalysis` above and the
+    // return docs of `analyzeDataset`.
+    const { rows, ...forState } = analysis;
+    engine.state.insight = { ...forState, suggestions };
+    latestAnalysis = analysis;
+    renderMindAnalysis();
     $('#mindSuggest').textContent = suggestions.length
       ? suggestions.slice(0, 4).map((s, i) =>
           `${i + 1}. [${s.move}] (score ${s.score.toFixed(2)}) ${s.rationale}`).join('\n')
@@ -445,6 +516,173 @@ bridge.addEventListener('datamove', () => {   // moves change the affordances
   clearTimeout(insightTimer);
   insightTimer = setTimeout(refreshInsight, 2500);
 });
+
+// ------------------------------------------------------------- Wonderings
+// The assembled pipeline (web/src/wonderings/index.js) driven by the real
+// bridge. Everything that decides ANYTHING — which observation is earned, how
+// it is worded, whether now is a moment to speak — lives in the pure modules
+// and is node-tested. This block owns only the three things a pure module
+// cannot: the clock, the CODAP reads, and the DOM.
+//
+// The character never says a wondering. `axo.emote()` is not called from here
+// and must not be: docs/CHARACTER.md keeps ambient inquiry and Dot's own voice
+// separate, and the whole reason the panel is a separate surface is that a
+// question the student never asked for must not read as Dot addressing them.
+
+const WONDERING_TICK_MS = 5000;      // ms between governor checks. The governor's own floor is 90 s, so this only bounds how late an offer can be; 5 s costs one governor call (pure arithmetic over `engine.state`) and, when it passes, one scene refresh
+const WONDERING_DWELL_SEC = 75;      // seconds a wondering stays on screen before it sinks away. Longer than a glance, shorter than the 90 s minimum interval, so a question is never on screen when the next one is due
+const SCENE_READ_TIMEOUT_MS = 4000;  // ms before an unanswered CODAP read counts as dropped. `CodapBridge.request` NEVER REJECTS AND NEVER TIMES OUT (codap-bridge.js:45) — the iframe phone drops replies at random (demo-driver.js:244) and a promise that never settles would wedge `createSceneModel`'s in-flight de-duplication for the life of the page
+
+/** `bridge.request` with a deadline, resolving to `null` on a dropped reply. */
+function readWithTimeout(action, resource) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(() => done(null), SCENE_READ_TIMEOUT_MS);
+    bridge.request(action, resource).then(done, () => done(null));
+  });
+}
+
+// `driver.active`, never `driver.phase` — see scene-model.js constraint 1.
+// `demo` is null on the cross-origin page and until setupDemo() succeeds, which
+// `isDriverSuspended(undefined)` reads as "not suspended", correctly.
+const sceneModel = await createSceneModel({
+  read: readWithTimeout,
+  attributeNames: () => latestAnalysis?.attrNames ?? [],
+  isSuspended: () => isDriverSuspended(demo?.driver),
+  prime: false,                     // CODAP is not up yet at module-eval time
+});
+
+let wonderingsPanel = null;
+let wonderingsTimer = null;
+let dwellTimer = null;
+const saidKeys = new Set();          // Observation.key values already shown this session
+let datasetCache = { at: null, model: null };
+
+/** The DatasetModel for the current analysis, rebuilt only when it changed. */
+function currentDataset() {
+  const a = latestAnalysis;
+  if (!a) return null;
+  if (datasetCache.at === a.at) return datasetCache.model;
+  const model = buildDatasetModel(a.rows, {
+    context: a.context,
+    attributeNames: a.attrNames,
+    declaredKinds: a.declaredKinds,
+  });
+  datasetCache = { at: a.at, model };
+  return model;
+}
+
+async function wonderingsTick() {
+  if (!wonderingsOn || !wonderingsPanel) return;
+  const dataset = currentDataset();
+  if (!dataset) return;
+  const nowSec = performance.now() / 1000;
+
+  // The governor runs FIRST, on the scene we already have: a student in flow
+  // must cost nothing at all, not even a componentList round trip.
+  const dry = nextWondering({
+    dataset, scene: sceneModel.scene, engineState: engine.state,
+    governorState, nowSeconds: nowSec, saidKeys,
+  });
+  lastWonderingReport = dry;
+  if (!dry.offer) { renderMindAnalysis(); return; }
+
+  // It is a moment to speak, so it is worth paying for a fresh scene.
+  await sceneModel.refresh();
+  const result = nextWondering({
+    dataset, scene: sceneModel.scene, engineState: engine.state,
+    governorState, nowSeconds: performance.now() / 1000, saidKeys,
+  });
+  lastWonderingReport = result;
+  renderMindAnalysis();
+  if (!result.offer || !result.wondering) return;
+
+  const w = result.wondering;
+  if (!wonderingsPanel.show(w.text)) return;      // panel refused (hidden/duplicate)
+  saidKeys.add(w.observation.key);
+  governorState = governorReducer(governorState, { type: 'offered', at: performance.now() / 1000 });
+  // The provenance a developer needs goes to the mind panel, never to the
+  // student: `provenance.evidence` holds the statistics the voice rule keeps
+  // out of the sentence, and `provenance.rejected[].text` holds strings that
+  // FAILED the lint.
+  const p = w.provenance;
+  mindLine(`? wondering [${p.family}/${p.phrasing}] ${w.text}`, '#0b5a6b');
+  mindLine(`   because ${p.focus.join(' × ')} — ${JSON.stringify(p.evidence)} `
+    + `(strength ${p.strength}, ${result.activity}, scene v${sceneModel.sceneVersion})`, '#57707a');
+
+  clearTimeout(dwellTimer);
+  dwellTimer = setTimeout(() => {
+    wonderingsPanel?.clear();
+    // Nothing reports uptake — the ledger is deliberately out of scope for this
+    // build (plan -002, "What is deliberately NOT in this build"), so a faded
+    // wondering is counted as unacted and the next one waits longer. Erring
+    // toward silence is the failure mode docs/CHARACTER.md asks for.
+    governorState = governorReducer(governorState, { type: 'unacted' });
+  }, WONDERING_DWELL_SEC * 1000);
+}
+
+function mountWonderings() {
+  if (wonderingsPanel) return;
+  wonderingsPanel = createWonderingsPanel({
+    doc: document,
+    frame: document.getElementById('codap'),
+    label: PARTIAL_FRAMING_LABEL,   // "some of many" — realize.js owns the wording
+    state: 'idle',
+  });
+  wonderingsTimer = setInterval(() => {
+    wonderingsTick().catch((err) => {
+      // A family that throws is a bug. Swallowing it silently would present as
+      // "the panel is quiet today", which is indistinguishable from correct
+      // behaviour — so it is logged where a human will see it (this is the
+      // wrapping web/src/wonderings/index.js's header says belongs here).
+      logLine(`wonderings failed: ${err.message}`, '#c92a2a');
+    });
+  }, WONDERING_TICK_MS);
+  logLine('wonderings: on', '#0b5a6b');
+}
+
+function unmountWonderings() {
+  clearInterval(wonderingsTimer); wonderingsTimer = null;
+  clearTimeout(dwellTimer); dwellTimer = null;
+  wonderingsPanel?.destroy();      // takes the poll, the listener and the <style> with it
+  wonderingsPanel = null;
+  lastWonderingReport = null;
+  renderMindAnalysis();
+}
+
+// The Dashboard toggle, built here rather than in the two HTML pages so that
+// codap.html and codap-same.html stay identical on this feature and neither
+// needs editing. It sits with `behaviors:` because it is the same kind of
+// switch: a thing Dot does, turned off.
+{
+  const btn = document.createElement('button');
+  const paint = () => { btn.innerHTML = `wonderings: <b>${wonderingsOn ? 'on' : 'off'}</b>`; };
+  btn.id = 'wonderingsToggle';
+  btn.onclick = () => {
+    wonderingsOn = !wonderingsOn;
+    paint();
+    if (wonderingsOn) mountWonderings(); else unmountWonderings();
+  };
+  paint();
+  $('#behaviors')?.after(btn);
+}
+
+if (wonderingsOn) mountWonderings();
+window.__wonderings = {
+  isOn: () => wonderingsOn,
+  panel: () => wonderingsPanel,
+  scene: () => sceneModel.scene,
+  dataset: () => currentDataset(),
+  report: () => lastWonderingReport,
+  governor: () => governorState,
+  /** Force one pass, ignoring the governor's interval — debug only. */
+  now: async () => {
+    governorState = { ...governorState, lastOfferAt: null };
+    await wonderingsTick();
+    return lastWonderingReport;
+  },
+};
 
 // mood debug: crank one dial high (others untouched) to provoke gated squibs
 document.querySelectorAll('[data-mood]').forEach(b => {
